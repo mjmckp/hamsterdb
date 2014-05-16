@@ -248,9 +248,9 @@ x PRO: extend release-tool
     x for pro: add test for --disable-encryption
     x for pro: add test for --disable-simd
 
-o port everything to Win32/Visual Studio
+x port everything to Win32/Visual Studio
 
-o PRO: additional stuff for the first release
+x PRO: additional stuff for the first release
     x update the ChangeLog
     x update the README
 
@@ -262,29 +262,29 @@ o PRO: additional stuff for the first release
         x file compatibility
         x simd
 
-    o user-area: customers.hamsterdb.com
-        o create "download" directory with all files
-        o create one directory per customer
-            o enable directory listing
-            o enable symlinks
-        o create one directory for trials
-            o disable directory listing
-            o enable symlinks
-        o use htpasswd to regulate the access
-        o store passwords in customer database
-        o the "download" directory keeps all the files; the customer
+    x user-area: customers.hamsterdb.com
+        x create "download" directory with all files
+        x create one directory per customer
+            x enable directory listing
+            x enable symlinks
+        x create one directory for trials
+            x disable directory listing
+            x enable symlinks
+        x use htpasswd to regulate the access
+        x store passwords in customer database
+        x the "download" directory keeps all the files; the customer
             directories just have symlinks into this directory
 
-    o webpage
+    x webpage
         x new marketing focus
         x feature matrix APL vs. closed source
         x new layout
         x request evaluation version
-        o commit everything to git
-        o daily backups of the mysql database
-        o once more check all the links, make sure they are relative!
-        o add google analytics token!
-        o go live
+        x commit everything to git
+        x daily backups of the mysql database
+        x once more check all the links, make sure they are relative!
+        x add google analytics token!
+        x go live
 
     o send email to all customers (add this to the release process)
         o include license agreement
@@ -444,11 +444,60 @@ o Refactorings for the Default layout with the following goals:
             x get_key_data_offset()
             x get_record_data_offset()
             x calc_next_offset()
+
+    How to separate the different modules (UpfrontIndex, KeyList, RecordList)
+    in order to have interfaces similar to PAX?
+    - UpfrontIndex: knows how to address keys if Keys, Records or Both have
+        variable length
+        - manages the offset pointers and the index capacity/freelist
+    - KeyList: access to key size, key data, key flags
+        (Extkeys/Compression is handled internally)
+        - can use UpfrontIndex to retrieve its own offset, if required
+    - RecordList: access to record size, record data, record flags
+        (duplicates are handled internally)
+        - can use UpfrontIndex to retrieve its own offset, if required
+
+    x start from clean scratch; the factory creates 3 template parameters:
+        UpfrontIndex<Offset, HasVariableKeys, HasDuplicates>,
+        KeyList (either from PAX or a variable length list from Default) 
+        RecordList from PAX
+            *or* DuplicateRecordList from Default
+    x perform initialization of the modules
+===============
+    o must set data pointers!! right now they're all initialized to the same
+        address
+===============
+    x get_key_size
+    o get_key_flags
+    o get_key_data
+    o get_key
+    o get_record_id
+    o set_record_id
+    o get_record_flags
+    o get_record_size
+    o get_record_count
+    o get_record
+    o set_record
+    o check_integrity: split and forward to all modules
+    o compare
+    o scan: if possible then forward to KeyList (same as Pax)
+    o erase_key
+    o erase_record
+    o erase: forward to the modules (shrink_space)
+    o insert: forward to the modules (make_space)
+    o requires_split
+    o requires_merge
+    o split
+    o merge_from
+    --> if RecordLists would grow "down" and KeyLists would grow "up" then
+        resizing them becomes an extremely cheap operation!
+
     o create DuplicateTable class, derive from ByteArray, move logic to this
         class
         o insert
         o erase
         o ...
+        o RecordList is a factory for the DuplicateTable
     o improve RecordList separation
         o including duplicate handling (and the DuplicateTable cache)
         o try to create interface similar to PAX RecordList

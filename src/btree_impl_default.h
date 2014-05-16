@@ -106,27 +106,66 @@
 
 namespace hamsterdb {
 
-template<typename KeyList, typename RecordList>
-class DefaultNodeImpl;
+namespace DefLayout {
 
 //
 // A small index which manages variable length buffers for keys and records
 //
-template<typename NodeType>
 class UpfrontIndex
 {
   public:
     // Constructor
-    UpfrontIndex(NodeType *node)
-      : m_node(node), m_data(0) {
+    UpfrontIndex()
+      : m_data(0), m_stride(0) {
     }
 
     // Initialization routine; sets data pointer and the initial capacity
     // If |capacity| is 0 then use the value that is already stored in the page
-    void initialize(ham_u8_t *data, size_t capacity) {
+    void initialize(ham_u8_t *data, size_t capacity,
+                    bool is_fixed_size, bool has_duplicates,
+                    size_t sizeof_offset) {
       m_data = data;
       if (capacity)
         set_capacity(capacity);
+      m_is_fixed_size = is_fixed_size;
+      m_has_duplicates = has_duplicates;
+      m_sizeof_offset = sizeof_offset;
+      // 1 byte flags + 2 byte key size (optional) + 2 (or 4) byte offset
+      //   + 1 byte record counter (optional)
+      m_stride = 1 + (m_is_fixed_size ? 0 : 2)
+                    + m_sizeof_offset
+                    + (m_has_duplicates ? 1 : 0);
+    }
+
+    // Returns the actual size of a single index
+    size_t get_full_index_size() const {
+      return (m_stride);
+    }
+
+    // Sets the start offset of the key data
+    void set_key_data_offset(ham_u32_t slot, ham_u32_t offset) {
+      ham_u8_t *p;
+      if (m_has_duplicates)
+        p = &m_data[m_stride * slot + 2];
+      else
+        p = &m_data[m_stride * slot + 1];
+      if (m_sizeof_offset == 4)
+        *(ham_u32_t *)p = ham_h2db32(offset);
+      else
+        *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
+    }
+
+    // Returns the start offset of a key's data
+    ham_u32_t get_key_data_offset(ham_u32_t slot) const {
+      ham_u8_t *p;
+      if (m_has_duplicates)
+        p = &m_data[m_stride * slot + 2];
+      else
+        p = &m_data[m_stride * slot + 1];
+      if (m_sizeof_offset == 4)
+        return (ham_db2h32(*(ham_u32_t *)p));
+      else
+        return (ham_db2h16(*(ham_u16_t *)p));
     }
 
     // Returns the capacity
@@ -149,54 +188,6 @@ class UpfrontIndex
       *(ham_u32_t *)(m_data + 4) = ham_h2db32(freelist_count);
     }
 
-    // Copies the index at |slot| to the freelist; does not overwrite/shift
-    // the index.
-    void copy_to_freelist(ham_u32_t slot) {
-      memcpy(m_node->m_keys.get_key_index_ptr(m_node->m_node->get_count()
-                              + get_freelist_count()),
-                      m_node->m_keys.get_key_index_ptr(slot),
-                      m_node->m_keys.get_key_index_span());
-
-      set_freelist_count(get_freelist_count() + 1);
-
-      ham_assert(get_freelist_count() + m_node->m_node->get_count()
-                      <= get_capacity());
-    }
-
-    // Removes a freelist entry at |slot|
-    void remove_from_freelist(ham_u32_t slot) {
-      ham_assert(get_freelist_count() > 0);
-
-      if ((ham_u32_t)slot
-              < m_node->m_node->get_count() + get_freelist_count() - 1) {
-        memmove(m_node->m_keys.get_key_index_ptr(slot),
-                      m_node->m_keys.get_key_index_ptr(slot + 1),
-                      m_node->m_keys.get_key_index_span()
-                          * (m_node->m_node->get_count() + get_freelist_count()
-                                    - slot - 1));
-      }
-
-      set_freelist_count(get_freelist_count() - 1);
-    }
-
-    // Searches for a freelist index with at least |required_size| bytes;
-    // returns its index, or -1 if no such index was found
-    int find_in_freelist(ham_u32_t count, size_t required_size) const {
-      int best = -1;
-      ham_u32_t freelist_count = get_freelist_count();
-
-      for (ham_u32_t i = 0; i < freelist_count; i++) {
-        ham_u32_t size = m_node->get_total_key_data_size(count + i);
-        if (size == required_size)
-          return (count + i);
-        if (size > required_size) {
-          if (best == -1 || size < m_node->get_total_key_data_size(best))
-            best = count + i;
-        }
-      }
-      return (best);
-    }
-
     // Returns the offset of the unused space at the end of the page
     ham_u32_t get_next_offset() const {
       return (ham_db2h32(*(ham_u32_t *)(m_data + 8)));
@@ -207,32 +198,385 @@ class UpfrontIndex
       *(ham_u32_t *)(m_data + 8) = ham_h2db32(next_offset);
     }
 
-    // Calculates the next offset (but does not store it)
-    ham_u32_t calc_next_offset(ham_u32_t count) const {
-      ham_u32_t next_offset = 0;
-      ham_u32_t total = count + get_freelist_count();
-      for (ham_u32_t i = 0; i < total; i++) {
-        ham_u32_t next = m_node->m_keys.get_key_data_offset(i)
-                    + m_node->get_total_key_data_size(i);
-        if (next >= next_offset)
-          next_offset = next;
-      }
-      return (next_offset);
+  private:
+    // The physical data in the node
+    ham_u8_t *m_data;
+
+    bool m_is_fixed_size;
+    bool m_has_duplicates;
+    size_t m_sizeof_offset;
+    size_t m_stride;
+};
+
+//
+// Variable length keyslist
+//
+class BinaryKeyList
+{
+  public:
+    BinaryKeyList(LocalDatabase *db)
+      : m_index(0), m_data(0) {
     }
 
-    // Checks the integrity of this index. Throws an exception if there is a
-    // violation.
-    void check_integrity() const {
-      //ham_assert(m_node->get_count() + get_freelist_count() <= get_capacity());
+    // Sets the data pointer; required for initialization
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index) {
+      m_index = index;
+      m_data = ptr;
+    }
+
+    // Returns the actual key size including overhead; this is just a guess
+    // since we don't know how large the keys will become
+    size_t get_full_key_size() const {
+      return (32 - 8); // + 5 - 8
+    }
+
+    // Returns the size of a single key
+    ham_u32_t get_key_size(ham_u32_t slot) const {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      return (ham_db2h16(*(ham_u16_t *)(m_data + offset)));
     }
 
   private:
-    // The btree node that we're operating on
-    NodeType *m_node;
-
-    // The physical data in the node
+    UpfrontIndex *m_index;
     ham_u8_t *m_data;
 };
+
+class DuplicateInlineRecordList
+{
+  public:
+    DuplicateInlineRecordList(LocalDatabase *db)
+      : m_record_size(db->get_record_size()) {
+    }
+
+    // Sets the data pointer; required for initialization
+    void initialize(ham_u8_t *ptr, size_t capacity) {
+      m_data = ptr;
+    }
+
+    // Returns the actual key record including overhead
+    size_t get_full_record_size() const {
+      return (2 + m_record_size);
+    }
+
+  private:
+    ham_u8_t *m_data;
+    size_t m_record_size;
+};
+
+class DuplicateDefaultRecordList
+{
+  public:
+    DuplicateDefaultRecordList(LocalDatabase *db) {
+    }
+
+    // Sets the data pointer; required for initialization
+    void initialize(ham_u8_t *ptr, size_t capacity) {
+      m_data = ptr;
+    }
+
+    // Returns the actual key record including overhead
+    size_t get_full_record_size() const {
+      return (2 + 8);
+    }
+
+  private:
+    ham_u8_t *m_data;
+};
+
+} // namespace DefLayout
+
+//
+// A BtreeNodeProxy layout which can handle...
+//
+//   1. fixed length keys w/ duplicates
+//   2. variable length keys w/ duplicates
+//   3. variable length keys w/o duplicates
+//
+// Fixed length keys are stored sequentially and reuse the layout from pax.
+// Same for the distinct RecordList (if duplicates are disabled).
+//
+template<typename Offset, typename KeyList, typename RecordList>
+class DefaultNodeImpl
+{
+    // the type of |this| object
+    typedef DefaultNodeImpl<Offset, KeyList, RecordList> NodeType;
+
+    enum {
+      // for capacity, freelist_count, next_offset
+      kPayloadOffset = 12
+    };
+
+  public:
+    // Constructor
+    DefaultNodeImpl(Page *page)
+      : m_page(page), m_node(PBtreeNode::from_page(m_page)),
+        m_keys(page->get_db()), m_records(page->get_db()),
+        m_recalc_capacity(false) {
+      initialize();
+    }
+
+    // Destructor
+    ~DefaultNodeImpl() {
+    }
+
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity() const {
+    }
+
+    // Compares two keys
+    template<typename Cmp>
+    int compare(const ham_key_t *lhs, ham_u32_t rhs, Cmp &cmp) {
+      return (0);
+    }
+
+    // Searches the node for the key and returns the slot of this key
+    template<typename Cmp>
+    int find_child(ham_key_t *key, Cmp &comparator, ham_u64_t *precord_id,
+                    int *pcmp) {
+      return (0);
+    }
+
+    // Searches the node for the key and returns the slot of this key
+    // - only for exact matches!
+    template<typename Cmp>
+    int find_exact(ham_key_t *key, Cmp &comparator) {
+      int cmp;
+      int r = find_child(key, comparator, 0, &cmp);
+      if (cmp)
+        return (-1);
+      return (r);
+    }
+
+    // Iterates all keys, calls the |visitor| on each
+    void scan(ScanVisitor *visitor, ham_u32_t start, bool distinct) {
+    }
+
+    // Returns a deep copy of the key
+    void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) {
+    }
+
+    // Returns the number of records of a key
+    ham_u32_t get_record_count(ham_u32_t slot) {
+      return (0);
+    }
+
+    // Returns the full record and stores it in |dest|
+    void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
+                    ham_u32_t flags, ham_u32_t duplicate_index) {
+    }
+
+    // Sets the record of a key, or adds a duplicate
+    void set_record(ham_u32_t slot, ham_record_t *record,
+                    ham_u32_t duplicate_index, ham_u32_t flags,
+                    ham_u32_t *new_duplicate_index) {
+    }
+
+    // Returns the record size of a key or one of its duplicates
+    ham_u64_t get_record_size(ham_u32_t slot, int duplicate_index) {
+      return (0);
+    }
+
+    // Erases an extended key
+    void erase_key(ham_u32_t slot) {
+    }
+
+    // Erases one (or all) records of a key
+    void erase_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                    bool all_duplicates) {
+    }
+
+    // Erases a key from the index. Does NOT erase the records!
+    void erase(ham_u32_t slot) {
+    }
+
+    // Inserts a new key at |slot|. 
+    // Also inserts an empty record which has to be overwritten in
+    // the next call of set_record().
+    void insert(ham_u32_t slot, const ham_key_t *key) {
+    }
+
+    // Returns true if |key| cannot be inserted because a split is required.
+    // Unlike implied by the name, this function will try to re-arrange the
+    // node in order for the key to fit in.
+    bool requires_split() {
+      return (false);
+    }
+
+    // Returns true if the node requires a merge or a shift
+    bool requires_merge() const {
+      return (m_node->get_count() <= 3);
+    }
+
+    // Splits this node and moves some/half of the keys to |other|
+    void split(DefaultNodeImpl *other, int pivot) {
+    }
+
+    // Merges keys from |other| to this node
+    void merge_from(DefaultNodeImpl *other) {
+    }
+
+    // Returns a record id
+    ham_u64_t get_record_id(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
+      return (0);
+    }
+
+    // Sets a record id
+    void set_record_id(ham_u32_t slot, ham_u64_t ptr,
+                    ham_u32_t duplicate_index = 0) {
+    }
+
+    // Returns the key's flags
+    ham_u32_t get_key_flags(ham_u32_t slot) const {
+      return (0);
+    }
+
+    // Sets the flags of a key
+    void set_key_flags(ham_u32_t slot, ham_u32_t flags) {
+    }
+
+    // Returns the key size as specified by the user
+    ham_u32_t get_key_size(ham_u32_t slot) const {
+      return (m_keys.get_key_size(slot));
+    }
+
+    // Sets the size of a key
+    void set_key_size(ham_u32_t slot, ham_u32_t size) {
+    }
+
+    // Returns a pointer to the (inline) key data
+    ham_u8_t *get_key_data(ham_u32_t slot) {
+      return (0);
+    }
+
+    // Returns a pointer to the (inline) key data (const flavour)
+    ham_u8_t *get_key_data(ham_u32_t slot) const {
+      return (0);
+    }
+
+    // Sets the inline key data
+    void set_key_data(ham_u32_t slot, const void *ptr, ham_u32_t len) {
+    }
+
+    // Returns the flags of a record; defined in btree_flags.h
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
+      return (0);
+    }
+
+    // Returns the capacity
+    size_t get_capacity() const {
+      return (0);
+    }
+
+    // Clears the page with zeroes and reinitializes it; only for testing
+    void test_clear_page() {
+      memset(m_page->get_payload(), 0,
+                    m_page->get_db()->get_local_env()->get_usable_page_size());
+      initialize();
+    }
+
+    // Sets a key; only for testing
+    void test_set_key(ham_u32_t slot, const char *data,
+                    size_t data_size, ham_u32_t flags, ham_u64_t record_id) {
+      set_record_id(slot, record_id);
+      set_key_flags(slot, flags);
+      set_key_size(slot, (ham_u16_t)data_size);
+      set_key_data(slot, data, (ham_u32_t)data_size);
+    }
+
+  private:
+    // Initializes the node
+    void initialize() {
+      LocalDatabase *db = m_page->get_db();
+      size_t key_size = db->get_btree_index()->get_key_size();
+
+      // is this a fresh page which has not yet been initialized?
+      if (m_node->get_count() == 0 && !(db->get_rt_flags() & HAM_READ_ONLY)) {
+        // if yes then ask the btree for the default capacity (it keeps
+        // track of the average capacity of older pages).
+        size_t capacity = db->get_btree_index()->get_statistics()->get_default_page_capacity();
+        // no data so far? then come up with a good default
+        if (capacity == 0) {
+          size_t page_size = db->get_local_env()->get_page_size();
+          size_t usable_page_size = get_usable_page_size();
+
+          if (key_size == HAM_KEY_SIZE_UNLIMITED)
+            key_size = m_keys.get_full_key_size();
+          // TODO only binary keys!
+          else if (key_size > calculate_extended_threshold(page_size))
+            key_size = sizeof(ham_u64_t);
+
+          capacity = usable_page_size
+                            / (m_index.get_full_index_size()
+                                + key_size
+                                + m_records.get_full_record_size());
+
+          // continue initialization with the original value
+          key_size = db->get_btree_index()->get_key_size();
+
+          // the default might not be precise and might be recalculated later
+          m_recalc_capacity = true;
+        }
+
+        m_index.initialize(m_node->get_data(), capacity,
+                key_size != HAM_KEY_SIZE_UNLIMITED,
+                (db->get_local_env()->get_flags() & HAM_ENABLE_DUPLICATES) != 0,
+                sizeof(Offset));
+        m_index.set_freelist_count(0);
+        m_index.set_next_offset(0);
+      }
+      else
+        m_index.initialize(m_node->get_data(), 0,
+                key_size != HAM_KEY_SIZE_UNLIMITED,
+                (db->get_local_env()->get_flags() & HAM_ENABLE_DUPLICATES) != 0,
+                sizeof(Offset));
+    }
+
+    // Calculates the extended threshold based on the page size
+    static size_t calculate_extended_threshold(size_t page_size) {
+      if (page_size == 1024)
+        return (64);
+      if (page_size <= 1024 * 8)
+        return (128);
+      return (256);
+    }
+
+    // Returns the usable page size that can be used for actually
+    // storing the data
+    size_t get_usable_page_size() const {
+      return (m_page->get_db()->get_local_env()->get_usable_page_size()
+                    - kPayloadOffset
+                    - PBtreeNode::get_entry_offset());
+    }
+
+
+    // The page that we're operating on
+    Page *m_page;
+
+    // The node that we're operating on
+    PBtreeNode *m_node;
+
+    // Provides access to the upfront index
+    DefLayout::UpfrontIndex m_index;
+
+    // The KeyList provides access to the stored keys
+    KeyList m_keys;
+
+    // The RecordList provides access to the stored records
+    RecordList m_records;
+
+    // A memory arena for various tasks
+    ByteArray m_arena;
+
+    // Allow the capacity to be recalculated later on
+    bool m_recalc_capacity;
+};
+
+#if 0
+template<typename KeyList, typename RecordList>
+class DefaultNodeImpl;
 
 //
 // A (static) helper class for dealing with extended duplicate tables
@@ -2130,7 +2474,6 @@ class DefaultNodeImpl
     }
 
   private:
-    friend class UpfrontIndex<NodeType>;
     friend class FixedInlineRecordImpl<KeyList>;
     friend class InternalInlineRecordImpl<KeyList>;
     friend class DefaultInlineRecordImpl<KeyList, true>;
@@ -2792,6 +3135,7 @@ class DefaultNodeImpl
     // Allow the capacity to be recalculated later on
     bool m_recalc_capacity;
 };
+#endif
 
 } // namespace hamsterdb
 

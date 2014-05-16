@@ -67,6 +67,8 @@
 
 namespace hamsterdb {
 
+class UpfrontIndex;
+
 //
 // The template classes in this file are wrapped in a separate namespace
 // to avoid naming clashes with btree_impl_default.h
@@ -87,7 +89,7 @@ class PodKeyList
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
       m_data = (T *)ptr;
     }
 
@@ -103,7 +105,7 @@ class PodKeyList
 
     // Copies a key into |dest|; memory must be allocated by the caller
     void get_key(ham_u32_t slot, ham_key_t *dest) const {
-      memcpy(dest->data, &m_data[slot], get_key_size());
+      memcpy(dest->data, &m_data[slot], get_key_size(slot));
     }
 
     // Erases the extended part of a key; nothing to do here
@@ -127,7 +129,7 @@ class PodKeyList
     }
 
     // Returns the size of a single key
-    ham_u32_t get_key_size() const {
+    ham_u32_t get_key_size(ham_u32_t slot) const {
       return (sizeof(T));
     }
 
@@ -149,7 +151,7 @@ class PodKeyList
     // Overwrites an existing key; the |size| of the new data HAS to be
     // identical with the key size specified when the database was created!
     void set_key_data(ham_u32_t slot, const void *ptr, size_t size) {
-      ham_assert(size == get_key_size());
+      ham_assert(size == get_key_size(slot));
       m_data[slot] = *(T *)ptr;
     }
 
@@ -229,7 +231,7 @@ class BinaryKeyList
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
       m_data = ptr;
     }
 
@@ -272,7 +274,7 @@ class BinaryKeyList
     }
 
     // Returns the key size
-    ham_u32_t get_key_size() const {
+    ham_u32_t get_key_size(ham_u32_t slot) const {
       return ((ham_u32_t)m_key_size);
     }
 
@@ -294,7 +296,7 @@ class BinaryKeyList
     // Overwrites a key's data. The |size| of the new data HAS
     // to be identical to the "official" key size
     void set_key_data(ham_u32_t slot, const void *ptr, size_t size) {
-      ham_assert(size == get_key_size());
+      ham_assert(size == get_key_size(slot));
       memcpy(&m_data[slot * m_key_size], ptr, size);
     }
 
@@ -900,7 +902,7 @@ class PaxNodeImpl
 
       ham_u8_t *p = m_node->get_data();
       m_keys.initialize(&p[0], m_capacity);
-      m_records.initialize(&p[m_capacity * get_key_size()], m_capacity);
+      m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
     }
 
     // Returns the page's capacity
@@ -917,7 +919,8 @@ class PaxNodeImpl
     // Compares two keys using the supplied comparator
     template<typename Cmp>
     int compare(const ham_key_t *lhs, ham_u32_t rhs, Cmp &cmp) {
-      return (cmp(lhs->data, lhs->size, get_key_data(rhs), get_key_size(rhs)));
+      return (cmp(lhs->data, lhs->size, m_keys.get_key_data(rhs),
+                              m_keys.get_key_size(rhs)));
     }
 
     // Searches the node for the key and returns the slot of this key
@@ -1071,8 +1074,8 @@ class PaxNodeImpl
     }
 
     // Returns the key size
-    ham_u32_t get_key_size(ham_u32_t slot = 0) const {
-      return (m_keys.get_key_size());
+    ham_u32_t get_key_size(ham_u32_t slot) const {
+      return (m_keys.get_key_size(slot));
     }
 
     // Returns the flags of a key; always 0
@@ -1108,7 +1111,7 @@ class PaxNodeImpl
 
     // Inserts a new key
     void insert(ham_u32_t slot, const ham_key_t *key) {
-      ham_assert(key->size == get_key_size());
+      ham_assert(key->size == get_key_size(slot));
 
       ham_u32_t count = m_node->get_count();
 
