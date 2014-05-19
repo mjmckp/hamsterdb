@@ -420,12 +420,6 @@ x Refactorings for the PAX layout with the following goals:
         x remove RecordList::is_always_fixed_size
         x remove RecordList::get_max_inline_record_size
 
-o default layout: the lookup operations are relatively slow compared to PAX;
-    can we somehow improve this?
-    o run profiling on a read-only workload, w/o records
-
-o split cursor.cc in two files because gcc can run out of memory when compiling
-
 o Refactorings for the Default layout with the following goals:
     -> responsible for duplicate keys ONLY!!
     -> UpfrontIndex manages freelist, upfront index
@@ -474,13 +468,23 @@ o Refactorings for the Default layout with the following goals:
     x compare
     x erase_key
 
-    o get_record_flags
-    o get_record_size
-    o get_record_count
+    x get_record_flags
+        x remove BtreeKey::kExtendedDuplicates
+        x handle inline records
+        x handle duplicate table
+    x get_record_count
+        x handle inline records
+        x handle duplicate table
+    x get_record_size
+        x handle inline records
+        x handle duplicate table
+    x create DuplicateTable objects, cache them (in common base class)
+    x get_record_data (private, reqd for get_record_id)
+    x get_record_id
+        x use this when calling get_duplicate_table()
+    x set_record_id
     o get_record
     o set_record
-    o get_record_id
-    o set_record_id
     o erase_record
 
     o check_integrity: split and forward to all modules
@@ -495,20 +499,32 @@ o Refactorings for the Default layout with the following goals:
         address
 ===============
 
+    o btree_index_factory has many TODOs
     o if RecordLists would grow "down" and KeyLists would grow "up" then
         resizing them becomes an extremely cheap operation!
-        (really? check w/ every layout)
+        (really? think this through)
+    o if btree_impl_default and btree_impl_pax are becoming identical:
+        unify them, or create a common base class
+
+    o do we really need get_record_id/set_record_id? not convinced...
 
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist?
     o then once more check if we can remove functions in the layout
+    o adjust file names
+        - btree_impl_distinct
+        - btree_impl_duplicate
+        - btree_impl_common
+
+    o get rid of test_set_key() - it requires many unnecessary functions
 
     o create UpfrontIndex for fixed length keys w/ duplicates: store keys
         sequentially, move RecordList to the "end" of the node
     o create UpfrontIndex for variable length keys w/o duplicates: store records
         sequentially, move RecordList to the "end" of the node
         -> maybe reuse PAX RecordList??
+    o update the documentation (internal + external)
 
 o the steps above will create an incompatible file format
     o increment file version
@@ -518,6 +534,24 @@ o the steps above will create an incompatible file format
                 flags + reserved
         o reserve CRC32 for each page
         o PAX Layout: can compress the flags for the DefaultRecordList
+        o Default Layout: can compress the flags for the Duplicate*RecordList
+
+o can we add a generic macro like this:
+    #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
+    which can be used as an initializer:
+    ham_key_t key = ham_make_key("hello", 5);
+    o same for records
+    o use in samples
+    o use in source
+    o use in unittests
+    o document
+
+o default layout: the lookup operations are relatively slow compared to PAX;
+    can we somehow improve this?
+    o maybe the work above is already enough?
+    o run profiling on a read-only workload, w/o records
+
+o split cursor.cc in two files because gcc can run out of memory when compiling
 
 o delta updates managed in the BtreeNode
     the operations are attached to the node, but as soon as the node

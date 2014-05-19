@@ -227,7 +227,7 @@ class BtreeNodeProxy
     virtual void print(ham_u32_t count = 0) = 0;
 
     // Returns the flags of the key at the given |slot|. Only for testing!
-    virtual ham_u32_t test_get_flags(ham_u32_t slot) const = 0;
+    virtual ham_u32_t test_get_flags(ham_u32_t slot) = 0;
 
     // Sets a key. Only for testing
     virtual void test_set_key(ham_u32_t slot, const char *data,
@@ -625,7 +625,7 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
     }
 
     // Returns the flags of the key at the given |slot|; only for testing!
-    virtual ham_u32_t test_get_flags(ham_u32_t slot) const {
+    virtual ham_u32_t test_get_flags(ham_u32_t slot) {
       return (m_impl.get_key_flags(slot) | m_impl.get_record_flags(slot));
     }
 

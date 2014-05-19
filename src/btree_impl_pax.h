@@ -396,7 +396,7 @@ class DefaultRecordList
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
       m_flags = ptr;
       m_data = (ham_u64_t *)&ptr[capacity];
     }
@@ -407,7 +407,8 @@ class DefaultRecordList
     }
 
     // Returns the record size
-    ham_u64_t get_record_size(ham_u32_t slot) const {
+    ham_u64_t get_record_size(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
       if (is_record_inline(slot))
         return (get_inline_record_size(slot));
 
@@ -556,6 +557,12 @@ class DefaultRecordList
       m_data[slot] = ptr;
     }
 
+    // Returns the record id
+    ham_u64_t get_record_id(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
+      return (m_data[slot]);
+    }
+
     // Sets record data
     void set_record_data(ham_u32_t slot, const void *ptr, size_t size) {
       ham_u8_t flags = get_record_flags(slot);
@@ -591,19 +598,14 @@ class DefaultRecordList
     }
 
     // Returns the record flags of a given |slot|
-    ham_u8_t get_record_flags(ham_u32_t slot) const {
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
       return (m_flags[slot]);
     }
 
     // Sets the record flags of a given |slot|
     void set_record_flags(ham_u32_t slot, ham_u8_t flags) {
       m_flags[slot] = flags;
-    }
-
-    // Returns the record id
-    ham_u64_t get_record_id(ham_u32_t slot) const {
-      ham_u64_t p = *(ham_u64_t *)get_record_data(slot);
-      return (ham_db2h_offset(p));
     }
 
   private:
@@ -639,8 +641,7 @@ class DefaultRecordList
       set_record_flags(slot,
                       flags & ~(BtreeRecord::kBlobSizeSmall
                         | BtreeRecord::kBlobSizeTiny
-                        | BtreeRecord::kBlobSizeEmpty
-                        | BtreeKey::kExtendedDuplicates));
+                        | BtreeRecord::kBlobSizeEmpty));
     }
 
     // The parent database of this btree
@@ -667,7 +668,7 @@ class InternalRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
       m_data = (ham_u64_t *)ptr;
     }
 
@@ -677,7 +678,8 @@ class InternalRecordList
     }
 
     // Returns the record size
-    ham_u64_t get_record_size(ham_u32_t slot) const {
+    ham_u64_t get_record_size(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
       return (sizeof(ham_u64_t));
     }
 
@@ -746,6 +748,12 @@ class InternalRecordList
       m_data[slot] = ptr;
     }
 
+    // Returns the record id
+    ham_u64_t get_record_id(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
+      return (m_data[slot]);
+    }
+
     // Sets record data
     void set_record_data(ham_u32_t slot, const void *ptr, ham_u32_t size) {
       ham_assert(size == sizeof(ham_u64_t));
@@ -758,7 +766,8 @@ class InternalRecordList
     }
 
     // Returns the record flags of a given |slot|
-    ham_u8_t get_record_flags(ham_u32_t slot) const {
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
       return (0);
     }
 
@@ -785,7 +794,7 @@ class InlineRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
       m_data = (ham_u8_t *)ptr;
     }
 
@@ -795,7 +804,8 @@ class InlineRecordList
     }
 
     // Returns the record size
-    ham_u64_t get_record_size(ham_u32_t slot) const {
+    ham_u64_t get_record_size(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
       return (m_record_size);
     }
 
@@ -864,6 +874,13 @@ class InlineRecordList
       return (&m_data[slot * m_record_size]);
     }
 
+    // Returns the record id
+    ham_u64_t get_record_id(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
+      ham_assert(!"shouldn't be here");
+      return (0);
+    }
+
     // Sets the record id
     void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
       ham_assert(!"shouldn't be here");
@@ -884,7 +901,8 @@ class InlineRecordList
     }
 
     // Returns the record flags of a given |slot|
-    ham_u8_t get_record_flags(ham_u32_t slot) const {
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
       return (0);
     }
 

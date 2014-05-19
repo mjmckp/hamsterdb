@@ -109,6 +109,87 @@ namespace hamsterdb {
 namespace DefLayout {
 
 //
+// A helper class for dealing with extended duplicate tables
+//
+//  Byte [0..3] - count
+//       [4..7] - capacity
+//       [8.. [ - 1 byte flags, n bytes record-data
+//
+class DuplicateTable
+{
+  public:
+    DuplicateTable(LocalDatabase *db, bool store_flags, size_t record_size)
+      : m_db(db), m_store_flags(store_flags), m_record_size(record_size) {
+    }
+
+    // Returns the number of duplicates
+    ham_u32_t get_record_count() const {
+      ham_assert(m_table.get_size() > 4);
+      ham_u32_t count = *(ham_u32_t *)m_table.get_ptr();
+      return (ham_db2h32(count));
+    }
+
+    // Returns the record flags
+    ham_u8_t get_record_flags(ham_u32_t duplicate_index) const {
+      ham_assert(duplicate_index < get_record_count());
+      return (*(((ham_u8_t *)m_table.get_ptr()) + 8
+                              + (m_store_flags ? duplicate_index : 0)
+                              + m_record_size * duplicate_index));
+    }
+
+    // Returns the record size
+    ham_u32_t get_record_size(ham_u32_t duplicate_index) const {
+      ham_assert(duplicate_index < get_record_count());
+      if (m_record_size != HAM_RECORD_SIZE_UNLIMITED)
+        return (m_record_size);
+      ham_assert(m_store_flags == true);
+
+      ham_u8_t *p = ((ham_u8_t *)m_table.get_ptr()
+                              + 8
+                              + m_record_size * (duplicate_index + 1));
+      ham_u8_t flags = *(p++);
+      if (flags & BtreeRecord::kBlobSizeTiny)
+        return (p[sizeof(ham_u64_t) - 1]);
+      if (flags & BtreeRecord::kBlobSizeSmall)
+        return (sizeof(ham_u64_t));
+      if (flags & BtreeRecord::kBlobSizeEmpty)
+        return (0);
+
+      ham_u64_t blob_id = ham_db2h64(*(ham_u64_t *)p);
+      return (m_db->get_local_env()->get_blob_manager()->get_blob_size(m_db,
+                              blob_id));
+    }
+
+    ByteArray *get_arena() {
+      return (&m_table);
+    }
+
+  private:
+    // Sets the number of used elements in a duplicate table
+    void set_count(ham_u32_t count) {
+      *(ham_u32_t *)m_table.get_ptr() = ham_h2db32(count);
+    }
+
+    // Returns the maximum capacity of elements in a duplicate table
+    ham_u32_t get_capacity() const {
+      ham_assert(m_table.get_size() >= 8);
+      ham_u32_t count = *(ham_u32_t *)((ham_u8_t *)m_table.get_ptr() + 4);
+      return (ham_db2h32(count));
+    }
+
+    // Sets the maximum capacity of elements in a duplicate table
+    void set_capacity(ham_u32_t capacity) {
+      ham_assert(m_table.get_size() >= 8);
+      *(ham_u32_t *)((ham_u8_t *)m_table.get_ptr() + 4) = ham_h2db32(capacity);
+    }
+
+    LocalDatabase *m_db;
+    bool m_store_flags;
+    size_t m_record_size;
+    ByteArray m_table;
+};
+
+//
 // A small index which manages variable length buffers for keys and records
 //
 class UpfrontIndex
@@ -148,7 +229,8 @@ class UpfrontIndex
 
     // Returns the start offset of a key's data
     ham_u32_t get_key_data_offset(ham_u32_t slot) const {
-      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot + 2];
+      ham_assert(m_is_fixed_size == false);
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot];
       if (m_sizeof_offset == 2)
         return (ham_db2h16(*(ham_u16_t *)p));
       else
@@ -157,7 +239,34 @@ class UpfrontIndex
 
     // Sets the start offset of the key data
     void set_key_data_offset(ham_u32_t slot, ham_u32_t offset) {
-      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot + 2];
+      ham_assert(m_is_fixed_size == false);
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot];
+      if (m_sizeof_offset == 2)
+        *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
+      else
+        *(ham_u32_t *)p = ham_h2db32(offset);
+    }
+
+    // Returns the start offset of the record data
+    // Only used if duplicates are enabled!
+    ham_u32_t get_record_data_offset(ham_u32_t slot) const {
+      ham_assert(m_has_duplicates == true);
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot];
+      if (!m_is_fixed_size)
+        p += 2;
+      if (m_sizeof_offset == 2)
+        return (ham_db2h16(*(ham_u16_t *)p));
+      else
+        return (ham_db2h32(*(ham_u32_t *)p));
+    }
+
+    // Sets the start offset of the record data.
+    // Only used if duplicates are enabled!
+    void set_record_data_offset(ham_u32_t slot, ham_u32_t offset) {
+      ham_assert(m_has_duplicates == true);
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot];
+      if (!m_is_fixed_size)
+        p += 2;
       if (m_sizeof_offset == 2)
         *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
       else
@@ -328,15 +437,80 @@ class BinaryKeyList
     ExtKeyCache *m_extkey_cache;
 };
 
-class DuplicateInlineRecordList
+//
+// Common functions for duplicate record lists
+//
+class DuplicateRecordList
+{
+    // for caching external duplicate tables
+    typedef std::map<ham_u64_t, DuplicateTable *> DuplicateTableCache;
+
+  public:
+    DuplicateRecordList(LocalDatabase *db, bool store_flags, size_t record_size)
+      : m_db(db), m_store_flags(store_flags), m_record_size(record_size),
+        m_duptable_cache(0) {
+    }
+
+    ~DuplicateRecordList() {
+      if (m_duptable_cache) {
+        for (DuplicateTableCache::iterator it = m_duptable_cache->begin();
+                        it != m_duptable_cache->end(); it++)
+          delete it->second;
+        delete m_duptable_cache;
+        m_duptable_cache = 0;
+      }
+    }
+
+    DuplicateTable *get_duplicate_table(ham_u64_t table_id) {
+      if (!m_duptable_cache)
+        m_duptable_cache = new DuplicateTableCache();
+      else {
+        DuplicateTableCache::iterator it = m_duptable_cache->find(table_id);
+        if (it != m_duptable_cache->end())
+          return (it->second);
+      }
+
+      DuplicateTable *dt = new DuplicateTable(m_db, m_store_flags,
+                                    m_record_size);
+      ham_record_t record = {0};
+      m_db->get_local_env()->get_blob_manager()->read(m_db, table_id, &record,
+                      0, dt->get_arena());
+      (*m_duptable_cache)[table_id] = dt;
+      return (dt);
+    }
+
+  protected:
+    LocalDatabase *m_db;
+    bool m_store_flags;
+    size_t m_record_size;
+    DuplicateTableCache *m_duptable_cache;
+};
+
+//
+// RecordList for records with fixed length, with duplicates
+//
+//   Format for each slot:
+//
+//       1 byte meta data
+//              bit 1 - 7: duplicate counter, if kExtendedDuplicates == 0
+//              bit 8: kExtendedDuplicates
+//       if kExtendedDuplicates == 0:
+//              <counter> * <length> bytes 
+//                  <length> byte data (always inline)
+//       if kExtendedDuplicates == 1:
+//              8 byte: record id of the extended duplicate table
+//
+class DuplicateInlineRecordList : public DuplicateRecordList
 {
   public:
     DuplicateInlineRecordList(LocalDatabase *db)
-      : m_record_size(db->get_record_size()) {
+      : DuplicateRecordList(db, false, db->get_record_size()),
+        m_record_size(db->get_record_size()) {
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index) {
+      m_index = index;
       m_data = ptr;
     }
 
@@ -345,28 +519,156 @@ class DuplicateInlineRecordList
       return (2 + m_record_size);
     }
 
+    // Returns the number of duplicates
+    ham_u32_t get_record_count(ham_u32_t slot) {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+        DuplicateTable *dt = get_duplicate_table(get_record_id(slot));
+        return (dt->get_record_count());
+      }
+      
+      return (m_data[offset] & 0x7f);
+    }
+
+    // Returns the flags of a record; defined in btree_flags.h
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0) {
+      return (0);
+    }
+
+    // Returns the size of a record; the size is always constant
+    ham_u64_t get_record_size(ham_u32_t slot, ham_u32_t duplicate_index = 0)
+                    const {
+      return (m_record_size);
+    }
+
+    // Returns a record id
+    ham_u64_t get_record_id(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
+      ham_u64_t ptr = *(ham_u64_t *)get_record_data(slot, duplicate_index);
+      return (ham_db2h_offset(ptr));
+    }
+
+    // Sets a record id; only for internal nodes! therefore not allowed here
+    void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
+      ham_assert(!"shouldn't be here");
+    }
+
   private:
+    const ham_u8_t *get_record_data(ham_u32_t slot,
+                        ham_u32_t duplicate_index = 0) const {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      return (&m_data[offset + 1 + m_record_size * duplicate_index]);
+    }
+
+    UpfrontIndex *m_index;
     ham_u8_t *m_data;
     size_t m_record_size;
 };
 
-class DuplicateDefaultRecordList
+//
+// RecordList for default records (8 bytes; either inline or a record id),
+// with duplicates
+//
+//   Format for each slot:
+//
+//       1 byte meta data
+//              bit 1 - 7: duplicate counter, if kExtendedDuplicates == 0
+//              bit 8: kExtendedDuplicates
+//       if kExtendedDuplicates == 0:
+//              <counter> * 9 bytes 
+//                  1 byte flags (RecordFlag::*)
+//                  8 byte data (either inline or record-id)
+//       if kExtendedDuplicates == 1:
+//              8 byte: record id of the extended duplicate table
+//
+class DuplicateDefaultRecordList : public DuplicateRecordList
 {
   public:
-    DuplicateDefaultRecordList(LocalDatabase *db) {
+    DuplicateDefaultRecordList(LocalDatabase *db)
+      : DuplicateRecordList(db, true, HAM_RECORD_SIZE_UNLIMITED),
+        m_index(0), m_data(0) {
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index) {
+      m_index = index;
       m_data = ptr;
     }
 
-    // Returns the actual key record including overhead
+    // Returns the actual key record including overhead; this is an estimate
     size_t get_full_record_size() const {
-      return (2 + 8);
+      return (3 + 8);
+    }
+
+    // Returns the number of duplicates
+    ham_u32_t get_record_count(ham_u32_t slot) {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+        DuplicateTable *dt = get_duplicate_table(get_record_id(slot));
+        return (dt->get_record_count());
+      }
+      
+      return (m_data[offset] & 0x7f);
+    }
+
+    // Returns the flags of a record; defined in btree_flags.h
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0) {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+        DuplicateTable *dt = get_duplicate_table(get_record_id(slot));
+        return (dt->get_record_flags(duplicate_index));
+      }
+      
+#ifdef HAM_DEBUG
+      ham_u8_t duplicate_counter = m_data[offset] & 0x7f;
+      ham_assert(duplicate_counter > 0);
+      ham_assert(duplicate_index < duplicate_counter);
+#endif
+      return (m_data[offset + 1 + 9 * duplicate_index + 1]);
+    }
+
+    // Returns the size of a record
+    ham_u64_t get_record_size(ham_u32_t slot, ham_u32_t duplicate_index = 0) {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+        DuplicateTable *dt = get_duplicate_table(get_record_id(slot));
+        return (dt->get_record_size(duplicate_index));
+      }
+      
+      ham_u8_t *p = &m_data[offset + 1 + 9 * duplicate_index];
+      ham_u8_t flags = *(p++);
+      if (flags & BtreeRecord::kBlobSizeTiny)
+        return (p[sizeof(ham_u64_t) - 1]);
+      if (flags & BtreeRecord::kBlobSizeSmall)
+        return (sizeof(ham_u64_t));
+      if (flags & BtreeRecord::kBlobSizeEmpty)
+        return (0);
+
+      ham_u64_t blob_id = ham_db2h64(*(ham_u64_t *)p);
+      return (m_db->get_local_env()->get_blob_manager()->get_blob_size(m_db,
+                              blob_id));
+    }
+
+    // Returns a record id
+    ham_u64_t get_record_id(ham_u32_t slot,
+                    ham_u32_t duplicate_index = 0) const {
+      ham_u64_t ptr = *(ham_u64_t *)get_record_data(slot, duplicate_index);
+      return (ham_db2h_offset(ptr));
+    }
+
+    // Sets a record id; only for internal nodes! therefore not allowed here
+    void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
+      ham_assert(!"shouldn't be here");
     }
 
   private:
+    const ham_u8_t *get_record_data(ham_u32_t slot,
+                        ham_u32_t duplicate_index = 0) const {
+      ham_u32_t offset = m_index->get_record_data_offset(slot);
+      return (&m_data[offset + 1 + 9 * duplicate_index + 1]);
+    }
+
+    UpfrontIndex *m_index;
     ham_u8_t *m_data;
 };
 
@@ -473,7 +775,7 @@ class DefaultNodeImpl
 
     // Returns the number of records of a key
     ham_u32_t get_record_count(ham_u32_t slot) {
-      return (0);
+      return (m_records.get_record_count(slot));
     }
 
     // Returns the full record and stores it in |dest|
@@ -489,7 +791,7 @@ class DefaultNodeImpl
 
     // Returns the record size of a key or one of its duplicates
     ham_u64_t get_record_size(ham_u32_t slot, int duplicate_index) {
-      return (0);
+      return (m_records.get_record_size(slot, duplicate_index));
     }
 
     // Erases an extended key
@@ -534,12 +836,12 @@ class DefaultNodeImpl
     // Returns a record id
     ham_u64_t get_record_id(ham_u32_t slot,
                     ham_u32_t duplicate_index = 0) const {
-      return (0);
+      return (m_records.get_record_id(slot, duplicate_index));
     }
 
-    // Sets a record id
-    void set_record_id(ham_u32_t slot, ham_u64_t ptr,
-                    ham_u32_t duplicate_index = 0) {
+    // Sets a record id; only for internal nodes!
+    void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
+      m_records.set_record_id(slot, ptr);
     }
 
     // Returns the key's flags
@@ -576,9 +878,8 @@ class DefaultNodeImpl
     }
 
     // Returns the flags of a record; defined in btree_flags.h
-    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
-                    const {
-      return (0);
+    ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0) {
+      return (m_records.get_record_flags(slot, duplicate_index));
     }
 
     // Returns the capacity
