@@ -103,9 +103,20 @@ class PodKeyList
       (*visitor)(&m_data[start], count);
     }
 
+    // Returns the flags of a key; always 0
+    ham_u8_t get_key_flags(ham_u32_t slot) const {
+      return (0);
+    }
+
+    // Sets the flags of a key; not supported
+    void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
+      ham_assert(!"shouldn't be here");
+    }
+
     // Copies a key into |dest|; memory must be allocated by the caller
     void get_key(ham_u32_t slot, ham_key_t *dest) const {
-      memcpy(dest->data, &m_data[slot], get_key_size(slot));
+      memcpy(dest->data, &m_data[slot], sizeof(T));
+      dest->size = sizeof(T);
     }
 
     // Erases the extended part of a key; nothing to do here
@@ -245,9 +256,20 @@ class BinaryKeyList
       (*visitor)(&m_data[start * m_key_size], count);
     }
 
+    // Returns the flags of a key; always 0
+    ham_u8_t get_key_flags(ham_u32_t slot) const {
+      return (0);
+    }
+
+    // Sets the flags of a key; not supported
+    void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
+      ham_assert(!"shouldn't be here");
+    }
+
     // Copies a key into |dest|; memory must be allocated by the caller
     void get_key(ham_u32_t slot, ham_key_t *dest) const {
       memcpy(dest->data, &m_data[slot * m_key_size], m_key_size);
+      dest->size = m_key_size;
     }
 
     // Erases the extended part of a key; nothing to do here

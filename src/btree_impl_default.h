@@ -113,6 +113,11 @@ namespace DefLayout {
 //
 class UpfrontIndex
 {
+    enum {
+      // for capacity, freelist_count, next_offset
+      kPayloadOffset = 12
+    };
+
   public:
     // Constructor
     UpfrontIndex()
@@ -132,9 +137,8 @@ class UpfrontIndex
       m_sizeof_offset = sizeof_offset;
       // 1 byte flags + 2 byte key size (optional) + 2 (or 4) byte offset
       //   + 1 byte record counter (optional)
-      m_stride = 1 + (m_is_fixed_size ? 0 : 2)
-                    + m_sizeof_offset
-                    + (m_has_duplicates ? 1 : 0);
+      m_stride = (!m_is_fixed_size ? m_sizeof_offset : 0)
+                 + (m_has_duplicates ? m_sizeof_offset : 0);
     }
 
     // Returns the actual size of a single index
@@ -142,30 +146,22 @@ class UpfrontIndex
       return (m_stride);
     }
 
-    // Sets the start offset of the key data
-    void set_key_data_offset(ham_u32_t slot, ham_u32_t offset) {
-      ham_u8_t *p;
-      if (m_has_duplicates)
-        p = &m_data[m_stride * slot + 2];
-      else
-        p = &m_data[m_stride * slot + 1];
-      if (m_sizeof_offset == 4)
-        *(ham_u32_t *)p = ham_h2db32(offset);
-      else
-        *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
-    }
-
     // Returns the start offset of a key's data
     ham_u32_t get_key_data_offset(ham_u32_t slot) const {
-      ham_u8_t *p;
-      if (m_has_duplicates)
-        p = &m_data[m_stride * slot + 2];
-      else
-        p = &m_data[m_stride * slot + 1];
-      if (m_sizeof_offset == 4)
-        return (ham_db2h32(*(ham_u32_t *)p));
-      else
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot + 2];
+      if (m_sizeof_offset == 2)
         return (ham_db2h16(*(ham_u16_t *)p));
+      else
+        return (ham_db2h32(*(ham_u32_t *)p));
+    }
+
+    // Sets the start offset of the key data
+    void set_key_data_offset(ham_u32_t slot, ham_u32_t offset) {
+      ham_u8_t *p = &m_data[kPayloadOffset + m_stride * slot + 2];
+      if (m_sizeof_offset == 2)
+        *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
+      else
+        *(ham_u32_t *)p = ham_h2db32(offset);
     }
 
     // Returns the capacity
@@ -213,9 +209,20 @@ class UpfrontIndex
 //
 class BinaryKeyList
 {
+    // for caching external keys
+    typedef std::map<ham_u64_t, ByteArray> ExtKeyCache;
+
   public:
     BinaryKeyList(LocalDatabase *db)
-      : m_index(0), m_data(0) {
+      : m_db(db), m_index(0), m_data(0), m_extkey_cache(0) {
+    }
+
+    // Destructor; clears the caches
+    ~BinaryKeyList() {
+      if (m_extkey_cache) {
+        delete m_extkey_cache;
+        m_extkey_cache = 0;
+      }
     }
 
     // Sets the data pointer; required for initialization
@@ -231,14 +238,94 @@ class BinaryKeyList
     }
 
     // Returns the size of a single key
-    ham_u32_t get_key_size(ham_u32_t slot) const {
+    size_t get_key_size(ham_u32_t slot) const {
       ham_u32_t offset = m_index->get_key_data_offset(slot);
       return (ham_db2h16(*(ham_u16_t *)(m_data + offset)));
     }
 
+    // Returns the flags of a single key
+    ham_u8_t get_key_flags(ham_u32_t slot) const {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      return (m_data[offset + 2]);
+    }
+
+    // Sets the flags of a single key
+    void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      m_data[offset + 2] = flags;
+    }
+
+    // Copies a key into |dest|; memory must be allocated by the caller
+    void get_key(ham_u32_t slot, ham_key_t *dest) const {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      dest->size = ham_db2h16(*(ham_u16_t *)(m_data + offset));
+      memcpy(dest->data, &m_data[offset + 3], dest->size);
+    }
+
+    // Returns the pointer to a key's data
+    ham_u8_t *get_key_data(ham_u32_t slot) {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      return (&m_data[offset + 3]);
+    }
+
+    // Returns the pointer to a key's data (const flavour)
+    ham_u8_t *get_key_data(ham_u32_t slot) const {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      return (&m_data[offset + 3]);
+    }
+
+    // Iterates all keys, calls the |visitor| on each; not supported by
+    // this KeyList implementation
+    void scan(ScanVisitor *visitor, ham_u32_t start, size_t count) {
+      ham_assert(!"shouldn't be here");
+    }
+
+    // Erases the extended part of a key
+    void erase_key(ham_u32_t slot) {
+      if (get_key_flags(slot) & BtreeKey::kExtendedKey) {
+        // delete the extended key from the cache
+        erase_extended_key(get_extended_blob_id(slot));
+        // and transform into a key which is non-extended and occupies
+        // the same space as before, when it was extended
+        set_key_flags(slot, get_key_flags(slot) & (~BtreeKey::kExtendedKey));
+        set_key_size(slot, sizeof(ham_u64_t));
+      }
+    }
+
   private:
+    // Sets the size of a key
+    void set_key_size(ham_u32_t slot, size_t size) {
+      ham_u32_t offset = m_index->get_key_data_offset(slot);
+      *(ham_u16_t *)(m_data + offset) = ham_h2db16((ham_u16_t)size);
+    }
+
+    // Returns the record address of an extended key overflow area
+    ham_u64_t get_extended_blob_id(ham_u32_t slot) const {
+      ham_u64_t rid = *(ham_u64_t *)get_key_data(slot);
+      return (ham_db2h_offset(rid));
+    }
+
+    // Sets the record address of an extended key overflow area
+    void set_extended_blob_id(ham_u32_t slot, ham_u64_t blobid) {
+      *(ham_u64_t *)get_key_data(slot) = ham_h2db_offset(blobid);
+    }
+
+    // Erases an extended key from disk and from the cache
+    void erase_extended_key(ham_u64_t blobid) {
+      m_db->get_local_env()->get_blob_manager()->erase(m_db, blobid);
+      if (m_extkey_cache) {
+        ExtKeyCache::iterator it = m_extkey_cache->find(blobid);
+        if (it != m_extkey_cache->end())
+          m_extkey_cache->erase(it);
+      }
+    }
+
+    LocalDatabase *m_db;
     UpfrontIndex *m_index;
     ham_u8_t *m_data;
+
+    // Cache for extended keys
+    ExtKeyCache *m_extkey_cache;
 };
 
 class DuplicateInlineRecordList
@@ -327,7 +414,9 @@ class DefaultNodeImpl
     // Compares two keys
     template<typename Cmp>
     int compare(const ham_key_t *lhs, ham_u32_t rhs, Cmp &cmp) {
-      return (0);
+      ham_key_t tmp = {0};
+      get_key(rhs, &m_arena, &tmp);
+      return (cmp(lhs->data, lhs->size, tmp.data, tmp.size));
     }
 
     // Searches the node for the key and returns the slot of this key
@@ -350,10 +439,36 @@ class DefaultNodeImpl
 
     // Iterates all keys, calls the |visitor| on each
     void scan(ScanVisitor *visitor, ham_u32_t start, bool distinct) {
+      // a distinct scan over fixed-length keys can be moved to the KeyList
+      LocalDatabase *db = m_page->get_db();
+      size_t key_size = db->get_btree_index()->get_key_size();
+      if (distinct && key_size != HAM_KEY_SIZE_UNLIMITED) {
+        m_keys.scan(visitor, start, m_node->get_count() - start);
+        return;
+      }
+
+      // otherwise iterate over the keys, call visitor for each key
+      ham_u32_t count = m_node->get_count() - start;
+      ham_key_t key = {0};
+
+      for (ham_u32_t i = start; i < count; i++) {
+        get_key(i, &m_arena, &key);
+        (*visitor)(key.data, key.size, distinct ? 1 : get_record_count(i));
+      }
     }
 
     // Returns a deep copy of the key
     void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) {
+      // allocate memory (if required)
+      if (!(dest->flags & HAM_KEY_USER_ALLOC)) {
+        ham_u32_t key_size = get_key_size(slot);
+        arena->resize(key_size);
+        dest->data = arena->get_ptr();
+        dest->size = key_size;
+      }
+
+      // and copy the key data
+      m_keys.get_key(slot, dest);
     }
 
     // Returns the number of records of a key
@@ -429,15 +544,16 @@ class DefaultNodeImpl
 
     // Returns the key's flags
     ham_u32_t get_key_flags(ham_u32_t slot) const {
-      return (0);
+      return (m_keys.get_key_flags(slot));
     }
 
     // Sets the flags of a key
     void set_key_flags(ham_u32_t slot, ham_u32_t flags) {
+      m_keys.set_key_flags(slot, flags);
     }
 
     // Returns the key size as specified by the user
-    ham_u32_t get_key_size(ham_u32_t slot) const {
+    size_t get_key_size(ham_u32_t slot) const {
       return (m_keys.get_key_size(slot));
     }
 

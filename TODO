@@ -463,49 +463,46 @@ o Refactorings for the Default layout with the following goals:
         RecordList from PAX
             *or* DuplicateRecordList from Default
     x perform initialization of the modules
-===============
-    o must set data pointers!! right now they're all initialized to the same
-        address
-===============
+    x the UpfrontIndex *only* manages the offsets (and capacity/freelist),
+        nothing else!
+    x get_key_flags
     x get_key_size
-    o get_key_flags
-    o get_key_data
-    o get_key
-    o get_record_id
-    o set_record_id
+    x get_key_data
+    x set_key_flags
+    x get_key
+    x scan: if possible then forward to KeyList (same as Pax)
+    x compare
+    x erase_key
+
     o get_record_flags
     o get_record_size
     o get_record_count
     o get_record
     o set_record
-    o check_integrity: split and forward to all modules
-    o compare
-    o scan: if possible then forward to KeyList (same as Pax)
-    o erase_key
+    o get_record_id
+    o set_record_id
     o erase_record
-    o erase: forward to the modules (shrink_space)
+
+    o check_integrity: split and forward to all modules
     o insert: forward to the modules (make_space)
+    o erase: forward to the modules (shrink_space)
     o requires_split
     o requires_merge
     o split
     o merge_from
-    --> if RecordLists would grow "down" and KeyLists would grow "up" then
-        resizing them becomes an extremely cheap operation!
+===============
+    o must set data pointers!! right now they're all initialized to the same
+        address
+===============
 
-    o create DuplicateTable class, derive from ByteArray, move logic to this
-        class
-        o insert
-        o erase
-        o ...
-        o RecordList is a factory for the DuplicateTable
-    o improve RecordList separation
-        o including duplicate handling (and the DuplicateTable cache)
-        o try to create interface similar to PAX RecordList
-        o template-parameter von KeyList übertragen (Offset, HasDuplicates)
-    o rewrite one high-level function after the other
-    o introduce KeyList, move relevant functions
-        o including extkeys (and their cache)
-        o try to create interface similar to PAX KeyList
+    o if RecordLists would grow "down" and KeyLists would grow "up" then
+        resizing them becomes an extremely cheap operation!
+        (really? check w/ every layout)
+
+    o get rid of enumerate() - it uses get_key_data() without even checking
+        for extended keys!
+    o move print() down to the layout/keylist?
+    o then once more check if we can remove functions in the layout
 
     o create UpfrontIndex for fixed length keys w/ duplicates: store keys
         sequentially, move RecordList to the "end" of the node
