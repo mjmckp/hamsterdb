@@ -419,7 +419,8 @@ class DefaultRecordList
 
     // Returns the full record and stores it in |dest|; memory must be
     // allocated by the caller
-    void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
+    void get_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                    ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags) const {
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
 
@@ -446,7 +447,9 @@ class DefaultRecordList
     }
 
     // Updates the record of a key
-    void set_record(ham_u32_t slot, ham_record_t *record, ham_u32_t flags) {
+    void set_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                ham_record_t *record, ham_u32_t flags,
+                ham_u32_t *new_duplicate_index = 0) {
       ham_u64_t ptr = get_record_id(slot);
       LocalEnvironment *env = m_db->get_local_env();
 
@@ -685,7 +688,8 @@ class InternalRecordList
 
     // Returns the full record and stores it in |dest|; memory must be
     // allocated by the caller
-    void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
+    void get_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                    ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags) const {
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
 
@@ -700,7 +704,9 @@ class InternalRecordList
     }
 
     // Updates the record of a key
-    void set_record(ham_u32_t slot, ham_record_t *record, ham_u32_t flags) {
+    void set_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                ham_record_t *record, ham_u32_t flags,
+                ham_u32_t *new_duplicate_index = 0) {
       ham_assert(record->size == sizeof(ham_u64_t));
       set_record_data(slot, record->data, record->size);
     }
@@ -811,7 +817,8 @@ class InlineRecordList
 
     // Returns the full record and stores it in |dest|; memory must be
     // allocated by the caller
-    void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
+    void get_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                    ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags) const {
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
 
@@ -826,7 +833,9 @@ class InlineRecordList
     }
 
     // Updates the record of a key
-    void set_record(ham_u32_t slot, ham_record_t *record, ham_u32_t flags) {
+    void set_record(ham_u32_t slot, ham_u32_t duplicate_index,
+                ham_record_t *record, ham_u32_t flags,
+                ham_u32_t *new_duplicate_index = 0) {
       ham_assert(record->size == m_record_size);
       set_record_data(slot, record->data, record->size);
     }
@@ -1077,14 +1086,14 @@ class PaxNodeImpl
       }
 
       // copy the record data
-      m_records.get_record(slot, arena, record, flags);
+      m_records.get_record(slot, duplicate_index, arena, record, flags);
     }
 
     // Updates the record of a key
     void set_record(ham_u32_t slot, ham_record_t *record,
                     ham_u32_t duplicate_index, ham_u32_t flags,
                     ham_u32_t *new_duplicate_index) {
-      m_records.set_record(slot, record, flags);
+      m_records.set_record(slot, duplicate_index, record, flags);
     }
 
     // Returns the record counter of a key

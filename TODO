@@ -483,8 +483,15 @@ o Refactorings for the Default layout with the following goals:
     x get_record_id
         x use this when calling get_duplicate_table()
     x set_record_id
-    o get_record
+    x get_record
+================
     o set_record
+        o the duplicate table assumes that a record is always stored inline
+            iff the size != UNLIMITED. is that really the case?
+            - no, use db->flag HAM_FORCE_RECORDS_INLINE
+        o implement grow_duplicate_table -> caller must overwrite table id
+        o implement *DuplicateRecordList::set_record
+================
     o erase_record
 
     o check_integrity: split and forward to all modules
@@ -498,6 +505,10 @@ o Refactorings for the Default layout with the following goals:
     o must set data pointers!! right now they're all initialized to the same
         address
 ===============
+
+    o call check_index_integrity() before/after every modification
+    o pax and default: get_record() calls get_record_size(), which is expensive
+        -> move arena allocation to the RecordList
 
     o btree_index_factory has many TODOs
     o if RecordLists would grow "down" and KeyLists would grow "up" then
@@ -525,6 +536,8 @@ o Refactorings for the Default layout with the following goals:
         sequentially, move RecordList to the "end" of the node
         -> maybe reuse PAX RecordList??
     o update the documentation (internal + external)
+
+o remove support for big endian
 
 o the steps above will create an incompatible file format
     o increment file version
