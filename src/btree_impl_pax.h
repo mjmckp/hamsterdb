@@ -128,9 +128,11 @@ class PodKeyList
       memmove(&m_data[slot], &m_data[slot + 1], sizeof(T) * (count - slot - 1));
     }
 
-    // Creates space for one additional key
-    void make_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot + 1], &m_data[slot], sizeof(T) * (count - slot));
+    // Inserts a key
+    void insert(ham_u32_t slot, size_t count, const ham_key_t *key) {
+      if (count > slot)
+        memmove(&m_data[slot + 1], &m_data[slot], sizeof(T) * (count - slot));
+      set_key_data(slot, key->data, key->size);
     }
 
     // Copies |count| key from this[sstart] to dest[dstart]
@@ -223,6 +225,11 @@ class PodKeyList
       return (start + count - 1);
     }
 
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity(ham_u32_t count) const {
+    }
+
   private:
     // The actual array of T's
     T *m_data;
@@ -282,10 +289,12 @@ class BinaryKeyList
                       m_key_size * (count - slot - 1));
     }
 
-    // Creates space for one additional key
-    void make_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[(slot + 1) * m_key_size], &m_data[slot * m_key_size],
+    // Inserts a key
+    void insert(ham_u32_t slot, size_t count, const ham_key_t *key) {
+      if (count > slot)
+        memmove(&m_data[(slot + 1) * m_key_size], &m_data[slot * m_key_size],
                       m_key_size * (count - slot));
+      set_key_data(slot, key->data, key->size);
     }
 
     // Copies |count| key from this[sstart] to dest[dstart]
@@ -372,6 +381,11 @@ class BinaryKeyList
       /* the new key is > the last key in the page */
       *pcmp = 1;
       return (start + count - 1);
+    }
+
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity(ham_u32_t count) const {
     }
 
   private:
@@ -505,7 +519,8 @@ class DefaultRecordList
     }
 
     // Erases the record
-    void erase_record(ham_u32_t slot) {
+    void erase_record(ham_u32_t slot, ham_u32_t duplicate_index = 0,
+                    bool all_duplicates = true) {
       if (is_record_inline(slot)) {
         remove_inline_record(slot);
         return;
@@ -611,6 +626,11 @@ class DefaultRecordList
       m_flags[slot] = flags;
     }
 
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity(ham_u32_t count) const {
+    }
+
   private:
     // Returns the size of an inline record
     ham_u32_t get_inline_record_size(ham_u32_t slot) const {
@@ -712,7 +732,8 @@ class InternalRecordList
     }
 
     // Erases the record
-    void erase_record(ham_u32_t slot) {
+    void erase_record(ham_u32_t slot, ham_u32_t duplicate_index = 0,
+                    bool all_duplicates = true) {
       m_data[slot] = 0;
     }
 
@@ -775,6 +796,11 @@ class InternalRecordList
     ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
                     const {
       return (0);
+    }
+
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity(ham_u32_t count) const {
     }
 
   private:
@@ -841,7 +867,8 @@ class InlineRecordList
     }
 
     // Erases the record
-    void erase_record(ham_u32_t slot) {
+    void erase_record(ham_u32_t slot, ham_u32_t duplicate_index = 0,
+                    bool all_duplicates = true) {
       if (m_record_size)
         memset(&m_data[m_record_size * slot], 0, m_record_size);
     }
@@ -913,6 +940,11 @@ class InlineRecordList
     ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0)
                     const {
       return (0);
+    }
+
+    // Checks the integrity of this node. Throws an exception if there is a
+    // violation.
+    void check_integrity(ham_u32_t count) const {
     }
 
   private:
@@ -1166,13 +1198,11 @@ class PaxNodeImpl
 
       // make space for 1 additional element.
       // only store the key data; flags and record IDs are set by the caller
-      if (count > slot) {
-        m_keys.make_space(slot, count);
-        m_records.make_space(slot, count);
-      }
+      m_keys.insert(slot, count, key);
 
-      m_keys.set_key_data(slot, key->data, key->size);
-      m_records.clear(slot);
+      if (count > slot)
+        m_records.make_space(slot, count);
+      m_records.clear(slot); // TODO required?
     }
 
     // Returns true if |key| cannot be inserted because a split is required

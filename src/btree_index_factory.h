@@ -92,53 +92,47 @@ struct BtreeIndexFactory
         if (use_duplicates) {
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO - pax!
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u8_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u8_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u8_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u8_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u8_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u8_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u8_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u8_t> >());
           }
           else {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO - pax!
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u8_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u8_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u8_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u8_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u8_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u8_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u8_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u8_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u8_t> >());
           }
         }
         else {
           if (!is_leaf)
-            return (new BtreeIndexTraitsImpl // TODO - pax!
-                      <PaxNodeImpl<PaxLayout::PodKeyList<ham_u8_t>,
+            return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u8_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u8_t> >());
           if (inline_records)
@@ -157,47 +151,41 @@ struct BtreeIndexFactory
         if (use_duplicates) {
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO - pax!
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u16_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u16_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u16_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u16_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u16_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u16_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u16_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u16_t> >());
           }
           else {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u16_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u16_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u16_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u16_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u16_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u16_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u16_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u16_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u16_t> >());
           }
         }
         else {
@@ -222,47 +210,41 @@ struct BtreeIndexFactory
         if (use_duplicates) {
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u32_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u32_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u32_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u32_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u32_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u32_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u32_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u32_t> >());
           }
           else {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u32_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u32_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u32_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u32_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u32_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u32_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u32_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u32_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u32_t> >());
           }
         }
         else {
@@ -288,52 +270,46 @@ struct BtreeIndexFactory
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t, // TODO pax
-                            PaxLayout::PodKeyList<ham_u64_t>,
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u64_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u64_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u64_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u64_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<ham_u64_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u64_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u64_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u64_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<ham_u64_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u64_t> >());
           }
           else {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t, // TODO pax
-                            PaxLayout::PodKeyList<ham_u64_t>,
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u64_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u64_t> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u64_t>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<ham_u64_t> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<ham_u64_t>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<ham_u64_t> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u64_t>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<ham_u64_t> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<ham_u64_t>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<ham_u64_t> >());
           }
         }
         else {
           if (!is_leaf)
-            return (new BtreeIndexTraitsImpl    // TODO pax
-                      <PaxNodeImpl<PaxLayout::PodKeyList<ham_u64_t>,
+            return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<ham_u64_t>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<ham_u64_t> >());
           if (inline_records)
@@ -352,47 +328,41 @@ struct BtreeIndexFactory
         if (use_duplicates) {
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<float>,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::PodKeyList<float>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<float> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<float>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<float> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<float>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<float> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<float>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<float> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<float>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<float> >());
           }
           else {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t, // TODO pax
-                            PaxLayout::PodKeyList<float>,
+                      PaxNodeImpl<PaxLayout::PodKeyList<float>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<float> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<float>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<float> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<float>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<float> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<float>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<float> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<float>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<float> >());
           }
         }
         else {
@@ -418,46 +388,40 @@ struct BtreeIndexFactory
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t, // TODO pax
-                            PaxLayout::PodKeyList<double>,
+                      PaxNodeImpl<PaxLayout::PodKeyList<double>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<double> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<double>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<double> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::PodKeyList<double>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<double> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<double>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<double> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::PodKeyList<double>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<double> >());
           }
           else {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t, // TODO pax
-                            PaxLayout::PodKeyList<double>,
+                      PaxNodeImpl<PaxLayout::PodKeyList<double>,
                             PaxLayout::InternalRecordList>,
                       NumericCompare<double> >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<double>,
-                            DefLayout::DuplicateInlineRecordList>,
-                      NumericCompare<double> >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::PodKeyList<double>,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      NumericCompare<double> >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<double>,
+                          DefLayout::DuplicateInlineRecordList>,
+                    NumericCompare<double> >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::PodKeyList<double>,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    NumericCompare<double> >());
           }
         }
         else {
@@ -502,46 +466,40 @@ struct BtreeIndexFactory
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t, // TODO pax
-                            PaxLayout::BinaryKeyList,
+                      PaxNodeImpl<PaxLayout::BinaryKeyList,
                             PaxLayout::InternalRecordList>,
                       CallbackCompare >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::BinaryKeyList,
-                            DefLayout::DuplicateInlineRecordList>,
-                      CallbackCompare >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::BinaryKeyList,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      CallbackCompare >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::BinaryKeyList,
+                          DefLayout::DuplicateInlineRecordList>,
+                    CallbackCompare >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u16_t,
+                          PaxLayout::BinaryKeyList,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    CallbackCompare >());
           }
           else {
             if (!is_leaf)
               return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t, // TODO pax
-                            PaxLayout::BinaryKeyList,
+                      PaxNodeImpl<PaxLayout::BinaryKeyList,
                             PaxLayout::InternalRecordList>,
                       CallbackCompare >());
-            else {
-              if (inline_records)
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::BinaryKeyList,
-                            DefLayout::DuplicateInlineRecordList>,
-                      CallbackCompare >());
-              else
-                return (new BtreeIndexTraitsImpl<
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::BinaryKeyList,
-                            DefLayout::DuplicateDefaultRecordList>,
-                      CallbackCompare >());
-            }
+            if (inline_records)
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::BinaryKeyList,
+                          DefLayout::DuplicateInlineRecordList>,
+                    CallbackCompare >());
+            else
+              return (new BtreeIndexTraitsImpl<
+                    DefaultNodeImpl<ham_u32_t,
+                          PaxLayout::BinaryKeyList,
+                          DefLayout::DuplicateDefaultRecordList>,
+                    CallbackCompare >());
           }
         }
         // Variable keys with or without duplicates
@@ -635,9 +593,8 @@ struct BtreeIndexFactory
         if (fixed_keys && use_duplicates) {
           if (page_size <= 64 * 1024) {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u16_t,
-                            PaxLayout::BinaryKeyList,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::BinaryKeyList,
                             PaxLayout::InternalRecordList>,
                       FixedSizeCompare >());
             if (inline_records && use_duplicates)
@@ -655,9 +612,8 @@ struct BtreeIndexFactory
           }
           else {
             if (!is_leaf)
-              return (new BtreeIndexTraitsImpl< // TODO pax
-                      DefaultNodeImpl<ham_u32_t,
-                            PaxLayout::BinaryKeyList,
+              return (new BtreeIndexTraitsImpl<
+                      PaxNodeImpl<PaxLayout::BinaryKeyList,
                             PaxLayout::InternalRecordList>,
                       FixedSizeCompare >());
             if (inline_records && use_duplicates)
@@ -677,7 +633,7 @@ struct BtreeIndexFactory
         // variable length keys, with and without duplicates
         if (page_size <= 64 * 1024) {
           if (!is_leaf)
-            return (new BtreeIndexTraitsImpl< // TODO pax
+            return (new BtreeIndexTraitsImpl<
                     DefaultNodeImpl<ham_u16_t,
                           DefLayout::BinaryKeyList,
                           PaxLayout::InternalRecordList>,
@@ -710,7 +666,7 @@ struct BtreeIndexFactory
         }
         else {
           if (!is_leaf)
-            return (new BtreeIndexTraitsImpl< // TODO pax
+            return (new BtreeIndexTraitsImpl<
                     DefaultNodeImpl<ham_u32_t,
                           DefLayout::BinaryKeyList,
                           PaxLayout::InternalRecordList>,

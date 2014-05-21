@@ -484,18 +484,54 @@ o Refactorings for the Default layout with the following goals:
         x use this when calling get_duplicate_table()
     x set_record_id
     x get_record
-================
-    o set_record
-        o the duplicate table assumes that a record is always stored inline
+    x set_record
+        x the duplicate table assumes that a record is always stored inline
             iff the size != UNLIMITED. is that really the case?
             - no, use db->flag HAM_FORCE_RECORDS_INLINE
-        o implement grow_duplicate_table -> caller must overwrite table id
-        o implement *DuplicateRecordList::set_record
-================
-    o erase_record
+        x when duplicate table is updated: caller must overwrite table id
+        x implement *DuplicateRecordList::set_record
+    x erase_record
+        x when duplicate table is updated: caller must overwrite table id
+        x flush_duplicate_table: also update the cache!
+        x also delete from cache, release memory!
+    x fix terminology problems: span vs. stride
+    x check_integrity: split and forward to all modules
+    x erase_key
 
-    o check_integrity: split and forward to all modules
+================
+    o UpfrontIndex has the following methods:
+        -> requires: assigned space (char *data, char *end)
+        -> persist: freelist count, capacity (slots), size of total range
+        -> index stores [{offset, size}], where offset is 1 or 2 bytes
+            depending on the page size, size is 1 or 2 bytes depending whether
+            it's for extkeys or duplicate records (adjust thresholds!)
+        
+        - can_allocate_space()
+            check if there's enough space at the end of the list
+            otherwise search through freelist
+        - allocate_space(slot, key)
+            try to allocate at the end
+            otherwise search through freelist
+            if freelist + rearrange_count > threshold: rearrange, try again   
+        - erase(slot)
+            shift, remove element, move to freelist
+        - requires_split()
+            calls can_allocate_space
+        - split()
+        - merge()
+
+    - when done: create unittests
+        - create/open
+        - allocate/erase
+        - split
+        - merge
+    - when done: remove from the layout, move into KeyList and RecordList
+        (as additional base class "IndexedList")
+
+================
+
     o insert: forward to the modules (make_space)
+            (started, but not complete)
     o erase: forward to the modules (shrink_space)
     o requires_split
     o requires_merge
@@ -505,20 +541,18 @@ o Refactorings for the Default layout with the following goals:
     o must set data pointers!! right now they're all initialized to the same
         address
 ===============
-
+    o there is lots of duplicate code in *DuplicateRecordList; move to
+        base class
     o call check_index_integrity() before/after every modification
     o pax and default: get_record() calls get_record_size(), which is expensive
         -> move arena allocation to the RecordList
-
-    o btree_index_factory has many TODOs
-    o if RecordLists would grow "down" and KeyLists would grow "up" then
-        resizing them becomes an extremely cheap operation!
-        (really? think this through)
-    o if btree_impl_default and btree_impl_pax are becoming identical:
-        unify them, or create a common base class
-
     o do we really need get_record_id/set_record_id? not convinced...
 
+    o can we test the DuplicateTable separately from the other classes?
+        and the UpfrontIndex? And everything else?
+
+    x btree_index_factory has many TODOs
+    o get rid of test_set_key() - it requires many unnecessary functions
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist?
@@ -528,13 +562,22 @@ o Refactorings for the Default layout with the following goals:
         - btree_impl_duplicate
         - btree_impl_common
 
-    o get rid of test_set_key() - it requires many unnecessary functions
+    o make sure there are no memory leaks with duplicate tables + in-memory
+        blobs
+    o collect test cases and systematically test for all possible layouts
+        o insert/erase/find
+        o insert/erase/find with duplicates
+        o insert/erase/find with duplicate tables
+        o insert/erase/find with extkeys
+        o insert/erase/find with extkeys, duplicate tables
+        o then repeat with different record sizes:
+                - empty (0)
+                - inline
+                - default, variable length
 
-    o create UpfrontIndex for fixed length keys w/ duplicates: store keys
-        sequentially, move RecordList to the "end" of the node
-    o create UpfrontIndex for variable length keys w/o duplicates: store records
-        sequentially, move RecordList to the "end" of the node
-        -> maybe reuse PAX RecordList??
+    o could reduce library size a lot if the layout could deal with
+        different page sizes (i.e. the offset type is chosen dynamically)
+
     o update the documentation (internal + external)
 
 o remove support for big endian
