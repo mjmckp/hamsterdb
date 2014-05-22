@@ -67,8 +67,6 @@
 
 namespace hamsterdb {
 
-class UpfrontIndex;
-
 //
 // The template classes in this file are wrapped in a separate namespace
 // to avoid naming clashes with btree_impl_default.h
@@ -88,8 +86,14 @@ class PodKeyList
       : m_data(0) {
     }
 
-    // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
+    // Creates a new PodKeyList starting at |ptr|, total size is
+    // |size| (in bytes)
+    void create(ham_u8_t *ptr, size_t size, size_t capacity) {
+      m_data = (T *)ptr;
+    }
+
+    // Opens an existing PodKeyList starting at |ptr|
+    void open(ham_u8_t *ptr) {
       m_data = (T *)ptr;
     }
 
@@ -248,8 +252,14 @@ class BinaryKeyList
       ham_assert(m_key_size != 0);
     }
 
-    // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
+    // Creates a new KeyList starting at |ptr|, total size is
+    // |size| (in bytes)
+    void create(ham_u8_t *ptr, size_t size, size_t capacity) {
+      m_data = ptr;
+    }
+
+    // Opens an existing PodKeyList starting at |ptr|
+    void open(ham_u8_t *ptr) {
       m_data = ptr;
     }
 
@@ -410,7 +420,7 @@ class DefaultRecordList
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
+    void initialize(ham_u8_t *ptr, size_t capacity) {
       m_flags = ptr;
       m_data = (ham_u64_t *)&ptr[capacity];
     }
@@ -691,7 +701,7 @@ class InternalRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
+    void initialize(ham_u8_t *ptr, size_t capacity) {
       m_data = (ham_u64_t *)ptr;
     }
 
@@ -826,7 +836,7 @@ class InlineRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity, UpfrontIndex *index = 0) {
+    void initialize(ham_u8_t *ptr, size_t capacity) {
       m_data = (ham_u8_t *)ptr;
     }
 
@@ -982,8 +992,14 @@ class PaxNodeImpl
                       + m_records.get_full_record_size());
 
       ham_u8_t *p = m_node->get_data();
-      m_keys.initialize(&p[0], m_capacity);
-      m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
+      if (m_node->get_count() == 0) {
+        m_keys.create(&p[0], m_capacity * m_keys.get_full_key_size(),
+                m_capacity);
+        m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
+      }
+      else {
+        m_keys.open(&p[0]);
+      }
     }
 
     // Returns the page's capacity

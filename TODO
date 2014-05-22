@@ -497,58 +497,44 @@ o Refactorings for the Default layout with the following goals:
     x fix terminology problems: span vs. stride
     x check_integrity: split and forward to all modules
     x erase_key
-
     x unittests for DuplicateTable
-        x many configurations
-            x w/ fixed length records, inline
-            x w/ fixed length records, empty
-            x w/ fixed length records, non inline
-            x w/ variable length records, empty
-            x w/ variable length records of size < 8
-            x w/ variable length records of size 8
-            x w/ variable length records of size > 8
-            x then repeat everything for in-memory
-        x create/close, open/close
-        x insert/find sequentially (ascending)
-        x insert/find sequentially (descending)
-        x insert/find "random access"
-        x insert/erase/find sequentially (ascending)
-        x insert/erase/find sequentially (descending)
-        x insert/erase/find "random access"
-        x insert/overwrite/find at random positions, with random sized records
 
 ================
     o UpfrontIndex has the following methods:
-        -> requires: assigned space (char *data, char *end)
-        -> persist: freelist count, capacity (slots), size of total range
+        -> requires: assigned space (char *data, size_t size)
+        -> persist: freelist count, capacity (slots), next_offset,
+                    total area size
         -> index stores [{offset, size}], where offset is 1 or 2 bytes
             depending on the page size, size is 1 or 2 bytes depending whether
             it's for extkeys or duplicate records (adjust thresholds!)
-        
-        - can_allocate_space()
+
+        o unittest for create/close/open/close
+        o can_allocate_slot()
+            checks if there's a free space available
+        o allocate_slot(offset, size)
+            allocates and returns a slot
+            o unittest for allocate_slot(), can_allocate_slot()
+
+        o can_allocate_space()
             check if there's enough space at the end of the list
             otherwise search through freelist
-        - allocate_space(slot, key)
+            o unittest: allocate more and more space till exhausted
+        o allocate_space(slot, key)
             try to allocate at the end
             otherwise search through freelist
             if freelist + rearrange_count > threshold: rearrange, try again   
-        - erase(slot)
-            shift, remove element, move to freelist
-        - requires_split()
-            calls can_allocate_space
-        - split()
-        - merge()
+            o unittest in combination with can_allocate_space()
+            o unittest: make use of freelist
+        o erase(slot)
+            move index to freelist
+        o requires_split()
+            calls can_allocate_slot() && can_allocate_space()
+        o split()
+        o merge()
 
-    - when done: create unittests
-        - create/open
-        - allocate/erase
-        - split
-        - merge
     - when done: remove from the layout, move into KeyList and RecordList
         (as additional base class "IndexedList", or as a member)
-
 ================
-
     o insert: forward to the modules (make_space)
             (started, but not complete)
     o erase: forward to the modules (shrink_space)
@@ -566,9 +552,7 @@ o Refactorings for the Default layout with the following goals:
     o pax and default: get_record() calls get_record_size(), which is expensive
         -> move arena allocation to the RecordList
     o do we really need get_record_id/set_record_id? not convinced...
-
-    o can we test the DuplicateTable separately from the other classes?
-        and the UpfrontIndex? And everything else?
+    o can we merge the two duplicate RecordLists?
 
     x btree_index_factory has many TODOs
     o get rid of test_set_key() - it requires many unnecessary functions
@@ -600,7 +584,9 @@ o Refactorings for the Default layout with the following goals:
 
     o update the documentation (internal + external)
 
-o remove support for big endian
+o remove support for big endian. better now than later, and this will get
+    rid of a lot of complexities
+    o also from documentation, webpage
 
 o the steps above will create an incompatible file format
     o increment file version
