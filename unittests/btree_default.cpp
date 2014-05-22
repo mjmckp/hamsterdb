@@ -24,10 +24,12 @@
 #include "os.hpp"
 
 #include "../src/db_local.h"
-#include "../src/btree_index.h"
+#include "../src/btree_impl_default.h"
 
-#undef min
-#undef max
+#ifdef WIN32
+#  undef min
+#  undef max
+#endif
 
 namespace hamsterdb {
 
@@ -617,6 +619,897 @@ TEST_CASE("BtreeDefault/fixedRecordsWithDuplicatesTest", "")
 
   f.insertCursorTest(ivec);
   f.eraseCursorTest(ivec);
+}
+
+
+using namespace hamsterdb::DefLayout;
+
+struct DuplicateTableFixture
+{
+  ham_db_t *m_db;
+  ham_env_t *m_env;
+
+  DuplicateTableFixture(ham_u32_t env_flags) {
+    REQUIRE(0 ==
+        ham_env_create(&m_env, Utils::opath(".test"), env_flags, 0644, 0));
+
+    REQUIRE(0 ==
+        ham_env_create_db(m_env, &m_db, 1, HAM_ENABLE_DUPLICATES, 0));
+  }
+
+  ~DuplicateTableFixture() {
+    teardown();
+  }
+
+  void teardown() {
+    if (m_env)
+	  REQUIRE(0 == ham_env_close(m_env, HAM_AUTO_CLEANUP));
+  }
+
+  void createReopenTest(bool inline_records, size_t fixed_record_size,
+                  const ham_u8_t *record_data, const size_t *record_sizes,
+                  size_t num_records) {
+    DuplicateTable dt((LocalDatabase *)m_db, inline_records, fixed_record_size);
+
+    ham_u64_t table_id = dt.allocate(record_data, num_records);
+    REQUIRE(table_id != 0);
+    REQUIRE(dt.get_record_count() == num_records);
+    REQUIRE(dt.get_record_capacity() == num_records * 2);
+
+    DuplicateTable dt2((LocalDatabase *)m_db, inline_records,
+                    fixed_record_size);
+    dt2.read_from_disk(table_id);
+    REQUIRE(dt2.get_record_count() == num_records);
+    REQUIRE(dt2.get_record_capacity() == num_records * 2);
+
+    ByteArray arena(fixed_record_size != HAM_RECORD_SIZE_UNLIMITED
+                        ? fixed_record_size
+                        : 1024);
+    ham_record_t record = {0};
+    record.data = arena.get_ptr();
+
+    const ham_u8_t *p = record_data;
+    for (size_t i = 0; i < num_records; i++) {
+      dt2.get_record(i, &arena, &record, 0);
+      REQUIRE(record.size == record_sizes[i]);
+
+      // this test does not compare record contents if they're not
+      // inline; don't see much benefit to do this, and it would only add
+      // complexity
+      if (!inline_records)
+        p++; // skip flags
+      else
+        REQUIRE(0 == ::memcmp(record.data, p, record_sizes[i]));
+      p += fixed_record_size != HAM_RECORD_SIZE_UNLIMITED
+              ? record_sizes[i]
+              : 8;
+    }
+  }
+
+  void insertAscendingTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // fill it
+    ham_record_t record = {0};
+    char buffer[1024] = {0};
+    record.data = &buffer[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buffer[0] = i;
+      dt.set_record(i, &record, 0, 0);
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+    REQUIRE(dt.get_record_capacity() == 128);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buffer[0] = i;
+
+      dt.get_record(i, &arena, &record, 0);
+      REQUIRE(record.size == record_size);
+      REQUIRE(0 == memcmp(record.data, &buffer[0], record_size));
+    }
+  }
+
+  void insertDescendingTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // fill it
+    ham_record_t record = {0};
+    char buffer[1024] = {0};
+    record.data = &buffer[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = num_records; i > 0; i--) {
+      *(size_t *)&buffer[0] = i;
+      ham_u32_t new_index = 0;
+      dt.set_record(0, &record, HAM_DUPLICATE_INSERT_FIRST,
+                      &new_index);
+      REQUIRE(new_index == 0);
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+    REQUIRE(dt.get_record_capacity() == 128);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = num_records; i > 0; i--) {
+      *(size_t *)&buffer[0] = i;
+
+      dt.get_record(i - 1, &arena, &record, 0);
+      REQUIRE(record.size == record_size);
+      REQUIRE(0 == memcmp(record.data, &buffer[0], record_size));
+    }
+  }
+
+  void insertRandomTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i;
+      if (i == 0) {
+        dt.set_record(i, &record, HAM_DUPLICATE_INSERT_FIRST, 0);
+        model.push_back(std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+      }
+      else {
+        size_t position = rand() % i;
+        dt.set_record(position, &record, HAM_DUPLICATE_INSERT_BEFORE, 0);
+        model.insert(model.begin() + position,
+                        std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+      }
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = 0; i < num_records; i++) {
+      dt.get_record(i, &arena, &record, 0);
+      REQUIRE(record.size == record_size);
+      REQUIRE(0 == memcmp(record.data, &(model[i][0]), record_size));
+    }
+  }
+
+  void insertEraseAscendingTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i;
+      dt.set_record(i, &record, HAM_DUPLICATE_INSERT_LAST, 0);
+      model.push_back(std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = 0; i < num_records; i++) {
+      dt.erase_record(0, false);
+
+      REQUIRE(dt.get_record_count() == num_records - i - 1);
+      model.erase(model.begin());
+
+      for (size_t j = 0; j < num_records - i - 1; j++) {
+        dt.get_record(j, &arena, &record, 0);
+        REQUIRE(record.size == record_size);
+        REQUIRE(0 == memcmp(record.data, &(model[j][0]), record_size));
+      }
+    }
+
+    REQUIRE(dt.get_record_count() == 0);
+  }
+
+  void insertEraseDescendingTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = num_records; i > 0; i--) {
+      *(size_t *)&buf[0] = i;
+      dt.set_record(0, &record, HAM_DUPLICATE_INSERT_FIRST, 0);
+      model.insert(model.begin(),
+                      std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = num_records; i > 0; i--) {
+      dt.erase_record(i - 1, false);
+
+      REQUIRE(dt.get_record_count() == i - 1);
+      model.erase(model.end() - 1);
+
+      for (size_t j = 0; j < i - 1; j++) {
+        dt.get_record(j, &arena, &record, 0);
+        REQUIRE(record.size == record_size);
+        REQUIRE(0 == memcmp(record.data, &(model[j][0]), record_size));
+      }
+    }
+
+    REQUIRE(dt.get_record_count() == 0);
+  }
+
+  void insertEraseRandomTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i;
+      dt.set_record(i, &record, HAM_DUPLICATE_INSERT_LAST, 0);
+      model.push_back(std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = 0; i < num_records; i++) {
+      size_t position = rand() % (num_records - i);
+      dt.erase_record(position, false);
+
+      REQUIRE(dt.get_record_count() == num_records - i - 1);
+      model.erase(model.begin() + position);
+
+      for (size_t j = 0; j < num_records - i - 1; j++) {
+        dt.get_record(j, &arena, &record, 0);
+        REQUIRE(record.size == record_size);
+        REQUIRE(0 == memcmp(record.data, &(model[j][0]), record_size));
+      }
+    }
+
+    REQUIRE(dt.get_record_count() == 0);
+  }
+
+  void insertOverwriteTest(bool fixed_records, size_t record_size) {
+    DuplicateTable dt((LocalDatabase *)m_db,
+                    fixed_records && record_size <= 8,
+                    record_size <= 8 ? record_size : HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 100;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    record.size = (ham_u32_t)record_size;
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i;
+      dt.set_record(i, &record, HAM_DUPLICATE_INSERT_LAST, 0);
+      model.push_back(std::vector<ham_u8_t>(&buf[0], &buf[record_size]));
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    // overwrite
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i + 1000;
+      dt.set_record(i, &record, HAM_OVERWRITE, 0);
+      model[i] = std::vector<ham_u8_t>(&buf[0], &buf[record_size]);
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    record.data = arena.get_ptr();
+
+    for (size_t i = 0; i < num_records; i++) {
+      dt.get_record(i, &arena, &record, 0);
+      REQUIRE(record.size == record_size);
+      REQUIRE(0 == memcmp(record.data, &(model[i][0]), record_size));
+    }
+  }
+
+  void insertOverwriteSizesTest() {
+    DuplicateTable dt((LocalDatabase *)m_db, false, HAM_RECORD_SIZE_UNLIMITED);
+
+    const size_t num_records = 1000;
+
+    // create an empty table
+    dt.allocate(0, 0);
+    REQUIRE(dt.get_record_count() == 0);
+    REQUIRE(dt.get_record_capacity() == 0);
+
+    // the model stores the records that we inserted
+    std::vector<std::vector<ham_u8_t> > model;
+
+    // fill it
+    ham_record_t record = {0};
+    ham_u8_t buf[1024] = {0};
+    record.data = &buf[0];
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i;
+      record.size = (ham_u32_t)(i % 15);
+      dt.set_record(i, &record, HAM_DUPLICATE_INSERT_LAST, 0);
+      model.push_back(std::vector<ham_u8_t>(&buf[0], &buf[record.size]));
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    // overwrite
+    for (size_t i = 0; i < num_records; i++) {
+      *(size_t *)&buf[0] = i + 1000;
+      record.size = (ham_u32_t)((i + 1) % 15);
+      dt.set_record(i, &record, HAM_OVERWRITE, 0);
+      model[i] = std::vector<ham_u8_t>(&buf[0], &buf[record.size]);
+    }
+
+    REQUIRE(dt.get_record_count() == num_records);
+
+    ByteArray arena(1024);
+    for (size_t i = 0; i < num_records; i++) {
+      record.data = arena.get_ptr();
+      *(size_t *)&buf[0] = i + 1000;
+      dt.get_record(i, &arena, &record, 0);
+      REQUIRE(record.size == (ham_u32_t)((i + 1) % 15));
+      REQUIRE(0 == memcmp(record.data, &(model[i][0]), record.size));
+    }
+  }
+};
+
+TEST_CASE("BtreeDefault/DuplicateTable/createReopenTest", "")
+{
+  const size_t num_records = 100;
+  ham_u64_t    inline_data_8[num_records];
+  size_t       record_sizes_8[num_records];
+  for (size_t i = 0; i < num_records; i++) {
+    record_sizes_8[i] = 8;
+    inline_data_8[i] = (ham_u64_t)i;
+  }
+
+  ham_u8_t     default_data_0[num_records * 9] = {0};
+  size_t       record_sizes_0[num_records] = {0};
+  for (size_t i = 0; i < num_records; i++)
+    default_data_0[i * 9] = BtreeRecord::kBlobSizeEmpty; // flags
+
+  ham_u8_t     default_data_4[num_records * 9] = {0};
+  size_t       record_sizes_4[num_records] = {0};
+  for (size_t i = 0; i < num_records; i++) {
+    record_sizes_4[i] = 4;
+    default_data_4[i * 9] = BtreeRecord::kBlobSizeTiny; // flags
+    default_data_4[i * 9 + 1 + 7] = (ham_u8_t)4; // inline size
+    *(ham_u32_t *)&default_data_4[i * 9 + 1] = (ham_u32_t)i;
+  }
+
+  ham_u8_t     default_data_8[num_records * 9] = {0};
+  for (size_t i = 0; i < num_records; i++) {
+    default_data_8[i * 9] = BtreeRecord::kBlobSizeSmall; // flags
+    *(ham_u64_t *)&default_data_8[i * 9 + 1] = (ham_u64_t)i;
+  }
+
+  ham_u8_t     default_data_16[num_records * 9] = {0};
+  size_t       record_sizes_16[num_records] = {0};
+  for (size_t i = 0; i < num_records; i++) {
+    record_sizes_16[i] = 16;
+  }
+
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.createReopenTest(true, 8, (ham_u8_t *)&inline_data_8[0],
+                      record_sizes_8, num_records);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.createReopenTest(true, 0, (ham_u8_t *)&inline_data_8[0],
+                      record_sizes_0, num_records);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0, inline
+      f.createReopenTest(false, HAM_RECORD_SIZE_UNLIMITED,
+                      &default_data_0[0], record_sizes_0, num_records);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4, inline
+      f.createReopenTest(false, HAM_RECORD_SIZE_UNLIMITED,
+                      &default_data_4[0], record_sizes_4, num_records);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8, inline
+      f.createReopenTest(false, HAM_RECORD_SIZE_UNLIMITED,
+                      &default_data_8[0], record_sizes_8, num_records);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      LocalDatabase *db = (LocalDatabase *)f.m_db;
+      LocalEnvironment *env = (LocalEnvironment *)f.m_env;
+
+      char buffer[16] = {0};
+      ham_record_t record = {0};
+      record.data = &buffer[0];
+      record.size = 16;
+      for (size_t i = 0; i < num_records; i++) {
+        ham_u64_t blob_id = env->get_blob_manager()->allocate(db, &record, 0);
+        *(ham_u64_t *)&default_data_16[i * 9 + 1] = blob_id;
+      }
+
+      // variable length records of size 16, not inline
+      f.createReopenTest(false, HAM_RECORD_SIZE_UNLIMITED,
+                      &default_data_16[0], record_sizes_16, num_records);
+
+      // clean up allocated blobs to avoid leaks
+      for (size_t i = 0; i < num_records; i++) {
+        ham_u64_t blob_id = *(ham_u64_t *)&default_data_16[i * 9 + 1];
+        env->get_blob_manager()->erase(db, blob_id, 0);
+      }
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      LocalDatabase *db = (LocalDatabase *)f.m_db;
+      LocalEnvironment *env = (LocalEnvironment *)f.m_env;
+
+      char buffer[16] = {0};
+      ham_record_t record = {0};
+      record.data = &buffer[0];
+      record.size = 16;
+      for (size_t i = 0; i < num_records; i++) {
+        ham_u64_t blob_id = env->get_blob_manager()->allocate(db, &record, 0);
+        *(ham_u64_t *)&default_data_16[i * 9 + 1] = blob_id;
+      }
+
+      // fixed length records of size 16, not inline
+      f.createReopenTest(false, 16,
+                      &default_data_16[0], record_sizes_16, num_records);
+
+      // clean up allocated blobs to avoid leaks
+      for (size_t i = 0; i < num_records; i++) {
+        ham_u64_t blob_id = *(ham_u64_t *)&default_data_16[i * 9 + 1];
+        env->get_blob_manager()->erase(db, blob_id, 0);
+      }
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertAscendingTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertAscendingTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertAscendingTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertAscendingTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertAscendingTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertAscendingTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertAscendingTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertAscendingTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertDescendingTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertDescendingTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertDescendingTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertDescendingTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertDescendingTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertDescendingTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertDescendingTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertDescendingTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertRandomTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertRandomTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertRandomTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertRandomTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertRandomTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertRandomTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertRandomTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertRandomTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertEraseAscendingTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertEraseAscendingTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertEraseAscendingTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertEraseAscendingTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertEraseAscendingTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertEraseAscendingTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertEraseAscendingTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertEraseAscendingTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertEraseDescendingTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertEraseDescendingTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertEraseDescendingTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertEraseDescendingTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertEraseDescendingTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertEraseDescendingTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertEraseDescendingTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertEraseDescendingTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertEraseRandomTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertEraseRandomTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertEraseRandomTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertEraseRandomTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertEraseRandomTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertEraseRandomTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertEraseRandomTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertEraseRandomTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertOverwriteTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 8, inline
+      f.insertOverwriteTest(true, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 0, inline
+      f.insertOverwriteTest(true, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 0
+      f.insertOverwriteTest(false, 0);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 4
+      f.insertOverwriteTest(false, 4);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 8
+      f.insertOverwriteTest(false, 8);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // variable length records of size 16, not inline
+      f.insertOverwriteTest(false, 16);
+    }
+
+    {
+      DuplicateTableFixture f(env_flags[i]);
+      // fixed length records of size 16, not inline
+      f.insertOverwriteTest(true, 16);
+    }
+  }
+}
+
+TEST_CASE("BtreeDefault/DuplicateTable/insertOverwriteSizesTest", "")
+{
+  ham_u32_t env_flags[] = {0, HAM_IN_MEMORY};
+  for (int i = 0; i < 2; i++) {
+    DuplicateTableFixture f(env_flags[i]);
+    f.insertOverwriteSizesTest();
+  }
 }
 
 } // namespace hamsterdb

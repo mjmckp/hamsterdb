@@ -498,6 +498,25 @@ o Refactorings for the Default layout with the following goals:
     x check_integrity: split and forward to all modules
     x erase_key
 
+    x unittests for DuplicateTable
+        x many configurations
+            x w/ fixed length records, inline
+            x w/ fixed length records, empty
+            x w/ fixed length records, non inline
+            x w/ variable length records, empty
+            x w/ variable length records of size < 8
+            x w/ variable length records of size 8
+            x w/ variable length records of size > 8
+            x then repeat everything for in-memory
+        x create/close, open/close
+        x insert/find sequentially (ascending)
+        x insert/find sequentially (descending)
+        x insert/find "random access"
+        x insert/erase/find sequentially (ascending)
+        x insert/erase/find sequentially (descending)
+        x insert/erase/find "random access"
+        x insert/overwrite/find at random positions, with random sized records
+
 ================
     o UpfrontIndex has the following methods:
         -> requires: assigned space (char *data, char *end)
@@ -526,7 +545,7 @@ o Refactorings for the Default layout with the following goals:
         - split
         - merge
     - when done: remove from the layout, move into KeyList and RecordList
-        (as additional base class "IndexedList")
+        (as additional base class "IndexedList", or as a member)
 
 ================
 
@@ -561,6 +580,7 @@ o Refactorings for the Default layout with the following goals:
         - btree_impl_distinct
         - btree_impl_duplicate
         - btree_impl_common
+    o btree_flags: kHasNoRecords still required?
 
     o make sure there are no memory leaks with duplicate tables + in-memory
         blobs
