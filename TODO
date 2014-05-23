@@ -499,7 +499,6 @@ o Refactorings for the Default layout with the following goals:
     x erase_key
     x unittests for DuplicateTable
 
-================
     o UpfrontIndex has the following methods:
         -> requires: assigned space (char *data, size_t size)
         -> persist: freelist count, capacity (slots), next_offset,
@@ -508,33 +507,53 @@ o Refactorings for the Default layout with the following goals:
             depending on the page size, size is 1 or 2 bytes depending whether
             it's for extkeys or duplicate records (adjust thresholds!)
 
-        o unittest for create/close/open/close
-        o can_allocate_slot()
+        x unittest for create/close/open/close
+        x can_insert_slot()
             checks if there's a free space available
-        o allocate_slot(offset, size)
+        x insert_slot(offset, size)
             allocates and returns a slot
-            o unittest for allocate_slot(), can_allocate_slot()
+            x unittest for insert_slot(), can_insert_slot()
 
-        o can_allocate_space()
-            check if there's enough space at the end of the list
-            otherwise search through freelist
-            o unittest: allocate more and more space till exhausted
-        o allocate_space(slot, key)
-            try to allocate at the end
-            otherwise search through freelist
-            if freelist + rearrange_count > threshold: rearrange, try again   
-            o unittest in combination with can_allocate_space()
+        x check_integrity(): makes sure that there are no overlapping slots
+
+        x erase_slot(slot)
+            x move index to freelist
+            x clear gap
+            x increase rearrange-counter
+            x unittest
+            x get_next_offset: if -1 then calc_next_offset()
+
+        x can_allocate_space()
+            x check if there's enough space at the end of the list
+            x otherwise search through freelist
+            x rearrange if counter > 0, then repeat
+        x allocate_space(slot, key)
+            x check if existing slot is large enough
+            x try to allocate at the end
+                x adjust get_next_offset
+            x otherwise search through freelist
+            x unittest in combination with can_allocate_space()
             o unittest: make use of freelist
-        o erase(slot)
-            move index to freelist
-        o requires_split()
+================
+        x requires_split()
             calls can_allocate_slot() && can_allocate_space()
         o split()
         o merge()
-
-    - when done: remove from the layout, move into KeyList and RecordList
-        (as additional base class "IndexedList", or as a member)
+            o unittest: split, then merge. result should be equal to the
+                original.
+  - siehe TODO in split() und merge_from() - der ablauf stimmt nicht
+  - clear()-methode fehlt auch noch (setzt freelist counter und
+        rearrange-counter auf 0)
+  - unittest existiert schon 
 ================
+
+    o terminology: chunk == region?
+
+    x remove from the layout, move into KeyList and RecordList
+        (as additional base class "IndexedList", or as a member)
+
+    o DefLayout::BinaryKeyList no longer needs to store the size; the size
+        is now managed in the UpfrontIndex
     o insert: forward to the modules (make_space)
             (started, but not complete)
     o erase: forward to the modules (shrink_space)
@@ -546,13 +565,15 @@ o Refactorings for the Default layout with the following goals:
     o must set data pointers!! right now they're all initialized to the same
         address
 ===============
+
     o there is lots of duplicate code in *DuplicateRecordList; move to
         base class
+        o or can we merge the two duplicate RecordLists? 
+    
     o call check_index_integrity() before/after every modification
     o pax and default: get_record() calls get_record_size(), which is expensive
         -> move arena allocation to the RecordList
     o do we really need get_record_id/set_record_id? not convinced...
-    o can we merge the two duplicate RecordLists?
 
     x btree_index_factory has many TODOs
     o get rid of test_set_key() - it requires many unnecessary functions
@@ -579,8 +600,11 @@ o Refactorings for the Default layout with the following goals:
                 - inline
                 - default, variable length
 
-    o could reduce library size a lot if the layout could deal with
+    x could reduce library size a lot if the layout could deal with
         different page sizes (i.e. the offset type is chosen dynamically)
+
+    o new unittest for fixed binary keys with large size (1024) - will the
+        file size explode because the capacity is calculated badly? 
 
     o update the documentation (internal + external)
 
@@ -732,6 +756,8 @@ o documentation TODOs for 2.1.8
     . blog comments are hosted on disqus, articles are also written in rst
 
 ------------- hamsterdb 2.1.8 ---------------------------------------
+
+o adapt to the newest changes from 2.1.8
 
 . PRO: add avx support
 o PRO: add sse support for real64

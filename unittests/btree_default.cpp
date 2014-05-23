@@ -1512,4 +1512,282 @@ TEST_CASE("BtreeDefault/DuplicateTable/insertOverwriteSizesTest", "")
   }
 }
 
+namespace DefLayout {
+
+struct UpfrontIndexFixture
+{
+  ham_db_t *m_db;
+  ham_env_t *m_env;
+
+  UpfrontIndexFixture(size_t page_size) {
+    ham_parameter_t params[] = {
+        {HAM_PARAM_PAGE_SIZE, page_size},
+        {0, 0}
+    };
+    REQUIRE(0 ==
+        ham_env_create(&m_env, Utils::opath(".test"), 0, 0644, &params[0]));
+
+    REQUIRE(0 ==
+        ham_env_create_db(m_env, &m_db, 1, HAM_ENABLE_DUPLICATES, 0));
+  }
+
+  ~UpfrontIndexFixture() {
+    teardown();
+  }
+
+  void teardown() {
+    if (m_env)
+	  REQUIRE(0 == ham_env_close(m_env, HAM_AUTO_CLEANUP));
+  }
+
+  void createReopenTest() {
+    ham_u8_t data[1024 * 16] = {1};
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    REQUIRE(ui.get_full_index_size() == 4);
+    ui.allocate(&data[0], 300, sizeof(data));
+
+    REQUIRE(ui.get_freelist_count() == 0);
+    REQUIRE(ui.get_capacity() == 300);
+    REQUIRE(ui.get_next_offset(0) ==
+                UpfrontIndex::kPayloadOffset + 300 * ui.get_full_index_size());
+    REQUIRE(ui.get_full_size() == sizeof(data));
+
+    UpfrontIndex ui2((LocalDatabase *)m_db);
+    REQUIRE(ui2.get_full_index_size() == 4);
+    ui2.read_from_disk(&data[0]);
+    REQUIRE(ui2.get_freelist_count() == 0);
+    REQUIRE(ui2.get_capacity() == 300);
+    REQUIRE(ui2.get_next_offset(0) ==
+                UpfrontIndex::kPayloadOffset + 300 * ui.get_full_index_size());
+    REQUIRE(ui2.get_full_size() == sizeof(data));
+  }
+
+  void appendSlotTest() {
+    ham_u8_t data[1024 * 16] = {1};
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    REQUIRE(ui.get_full_index_size() == 4);
+    ui.allocate(&data[0], 300, sizeof(data));
+
+    for (size_t i = 0; i < 300; i++) {
+      REQUIRE(ui.can_insert_slot(i) == true);
+      ui.insert_slot(i, i, i, i); // position, count, offset, size
+    }
+    REQUIRE(ui.can_insert_slot(300) == false);
+
+    for (size_t i = 0; i < 300; i++) {
+      REQUIRE(ui.get_chunk_size(i) == i);
+      REQUIRE(ui.get_chunk_offset(i) == i);
+    }
+  }
+
+  void insertSlotTest() {
+    ham_u8_t data[1024 * 16] = {1};
+    const size_t kMax = 300;
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    REQUIRE(ui.get_full_index_size() == 4);
+    ui.allocate(&data[0], kMax, sizeof(data));
+
+    for (size_t i = 0; i < kMax; i++) {
+      REQUIRE(ui.can_insert_slot(i) == true);
+      ui.insert_slot(0, i, i, i); // position, count, offset, size
+    }
+    REQUIRE(ui.can_insert_slot(kMax) == false);
+
+    for (size_t i = 0; i < kMax; i++) {
+      REQUIRE(ui.get_chunk_size(i) == kMax - i - 1);
+      REQUIRE(ui.get_chunk_offset(i) == kMax - i - 1);
+    }
+  }
+
+  void eraseSlotTest() {
+    ham_u8_t data[1024 * 16] = {1};
+    const size_t kMax = 300;
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    REQUIRE(ui.get_full_index_size() == 4);
+    ui.allocate(&data[0], kMax, sizeof(data));
+
+    for (size_t i = 0; i < kMax; i++) {
+      REQUIRE(ui.can_insert_slot(i) == true);
+      ui.insert_slot(i, i, i, i); // position, count, offset, size
+    }
+    REQUIRE(ui.can_insert_slot(kMax) == false);
+
+    for (size_t i = 0; i < kMax - 1; i++) {
+      ui.erase_slot(0, kMax - i);
+      REQUIRE(ui.get_freelist_count() == i + 1);
+      REQUIRE(ui.get_chunk_size(0) == i + 1);
+      REQUIRE(ui.get_chunk_offset(0) == i + 1);
+    }
+
+    ui.allocate(&data[0], kMax, sizeof(data));
+
+    // fill again, then erase from behind
+    for (size_t i = 0; i < kMax; i++) {
+      REQUIRE(ui.can_insert_slot(i) == true);
+      ui.insert_slot(i, i, i, i); // position, count, offset, size
+    }
+    REQUIRE(ui.can_insert_slot(kMax) == false);
+
+    for (size_t i = 0; i < kMax; i++) {
+      ui.erase_slot(kMax - 1 - i, kMax - i);
+      REQUIRE(ui.get_freelist_count() == i + 1);
+      for (size_t j = 0; j < kMax; j++) { // also checks freelist
+        REQUIRE(ui.get_chunk_size(j) == j);
+        REQUIRE(ui.get_chunk_offset(j) == j);
+      }
+    }
+  }
+
+  void allocateTest() {
+    ham_u8_t data[1024 * 16] = {1};
+    const size_t kMax = 300;
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    ui.allocate(&data[0], kMax, sizeof(data));
+
+    size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
+            - UpfrontIndex::kPayloadOffset;
+
+    size_t i;
+    size_t capacity = bytes_left / 64;
+    for (i = 0; i < capacity; i++) {
+      REQUIRE(ui.can_allocate_space(i, 64) == true);
+      REQUIRE(ui.allocate_space(i, i, 64) > 0); // count, slot, size
+    }
+    REQUIRE(ui.can_allocate_space(i, 64) == false);
+  }
+
+  void allocateFromFreelistTest() {
+    ham_u8_t data[1024 * 16] = {1};
+    const size_t kMax = 300;
+
+    UpfrontIndex ui((LocalDatabase *)m_db);
+    ui.allocate(&data[0], kMax, sizeof(data));
+
+    size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
+            - UpfrontIndex::kPayloadOffset;
+
+    // fill it up
+    size_t i;
+    size_t capacity = bytes_left / 64;
+    for (i = 0; i < capacity; i++) {
+      REQUIRE(ui.can_allocate_space(i, 64) == true);
+      REQUIRE(ui.allocate_space(i, i, 64) > 0); // count, slot, size
+    }
+    REQUIRE(ui.can_allocate_space(i, 64) == false);
+
+    // erase the last slot, allocate it again
+    REQUIRE(ui.get_freelist_count() == 0);
+    ui.erase_slot(i - 1, i);
+    REQUIRE(ui.get_freelist_count() == 1);
+    REQUIRE(ui.can_allocate_space(i - 1, 64) == true);
+    REQUIRE(ui.allocate_space(i - 1, i - 1, 64) > 0);
+    REQUIRE(ui.can_allocate_space(i, 64) == false);
+
+    // erase the first slot, allocate it again
+    REQUIRE(ui.get_freelist_count() == 0);
+    ui.erase_slot(0, i);
+    REQUIRE(ui.get_freelist_count() == 1);
+    REQUIRE(ui.can_allocate_space(i - 1, 64) == true);
+    REQUIRE(ui.allocate_space(i - 1, i - 1, 64) > 0);
+    REQUIRE(ui.can_allocate_space(i, 64) == false);
+  }
+
+  void splitMergeTest() {
+    ham_u8_t data1[1024 * 16] = {1};
+    ham_u8_t data2[1024 * 16] = {1};
+    const size_t kMax = 300;
+
+    UpfrontIndex ui1((LocalDatabase *)m_db);
+    ui1.allocate(&data1[0], kMax, sizeof(data1));
+
+    size_t bytes_left = sizeof(data) - kMax * ui1.get_full_index_size()
+            - UpfrontIndex::kPayloadOffset;
+
+    // fill it up
+    size_t capacity = bytes_left / 64;
+    for (size_t i = 0; i < capacity; i++)
+      REQUIRE(ui1.allocate_space(i, i, 64) > 0); // count, slot, size
+
+    // at every possible position: split into page2, then merge, then compare
+    for (size_t i = 0; i < capacity; i++) {
+      ui2.allocate(&data2[0], kMax, sizeof(data2));
+      ui1.split(&ui2, capacity, i);
+      ui1.merge_from(&ui2, capacity, i);
+      for (size_t j = 0; j < capacity; j++) {
+        REQUIRE(ui1.get_chunk_size(j) == 64);
+        REQUIRE(ui1.get_chunk_offset(j) == j);
+      }
+    }
+};
+
+TEST_CASE("BtreeDefault/UpfrontIndex/createReopenTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.createReopenTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/appendSlotTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.appendSlotTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/insertSlotTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.insertSlotTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/eraseSlotTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.eraseSlotTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/allocateTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.allocateTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/allocateFromFreelistTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.allocateFromFreelistTest();
+  }
+}
+
+TEST_CASE("BtreeDefault/UpfrontIndex/splitMergeTest", "")
+{
+  size_t page_sizes[] = {1024 * 16, 1024 * 64};
+  for (int i = 0; i < 2; i++) {
+    UpfrontIndexFixture f(page_sizes[i]);
+    f.splitMergeTest();
+  }
+}
+
+} // namespace DefLayout
+
 } // namespace hamsterdb

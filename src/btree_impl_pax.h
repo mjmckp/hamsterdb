@@ -415,7 +415,7 @@ class DefaultRecordList
 {
   public:
     // Constructor
-    DefaultRecordList(LocalDatabase *db)
+    DefaultRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_flags(0), m_data(0) {
     }
 
@@ -696,7 +696,7 @@ class InternalRecordList
 {
   public:
     // Constructor
-    InternalRecordList(LocalDatabase *db)
+    InternalRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_data(0) {
     }
 
@@ -830,7 +830,7 @@ class InlineRecordList
 {
   public:
     // Constructor
-    InlineRecordList(LocalDatabase *db)
+    InlineRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_record_size(db->get_record_size()), m_data(0), m_dummy(0) {
       ham_assert(m_record_size != HAM_RECORD_SIZE_UNLIMITED);
     }
@@ -984,7 +984,7 @@ class PaxNodeImpl
     // Constructor
     PaxNodeImpl(Page *page)
       : m_page(page), m_node(PBtreeNode::from_page(page)),
-        m_keys(page->get_db()), m_records(page->get_db()) {
+        m_keys(page->get_db()), m_records(page->get_db(), m_node) {
       ham_u32_t usable_nodesize
               = page->get_db()->get_local_env()->get_usable_page_size()
                     - PBtreeNode::get_entry_offset();
