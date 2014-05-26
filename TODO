@@ -547,13 +547,18 @@ o Refactorings for the Default layout with the following goals:
         x perform a full review, add documentation
         x implement rearrange()
 
-    o DefLayout::BinaryKeyList no longer needs to store the size; the size
+    x DefLayout::BinaryKeyList no longer needs to store the size; the size
         is now managed in the UpfrontIndex
+    x Duplicate*: no need to store a size; the size is now managed in the
+        UpfrontIndex
+        x do not access data[offset] directly because it is not an absolute
+            address!
+
+    o erase: forward to the modules (shrink_space)
     o insert: forward to the modules (make_space)
             (started, but not complete)
-    o erase: forward to the modules (shrink_space)
     o requires_split
-    o requires_merge
+    x requires_merge
     o split
     o merge_from
     o must set data pointers!! right now they're all initialized to the same
@@ -565,8 +570,9 @@ o Refactorings for the Default layout with the following goals:
         o or can we merge the two duplicate RecordLists? 
     
     o call check_index_integrity() before/after every modification
-    o pax and default: get_record() calls get_record_size(), which is expensive
+    x pax and default: get_record() calls get_record_size(), which is expensive
         -> move arena allocation to the RecordList
+        x same for get_key()
     o do we really need get_record_id/set_record_id? not convinced...
 
     x btree_index_factory has many TODOs
@@ -575,6 +581,10 @@ o Refactorings for the Default layout with the following goals:
         for extended keys!
     o move print() down to the layout/keylist?
     o then once more check if we can remove functions in the layout
+
+    o can the two btree formats (pax/default) be merged? if yes then they could
+        maybe be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
+
     o adjust file names
         - btree_impl_distinct
         - btree_impl_duplicate
@@ -603,6 +613,7 @@ o Refactorings for the Default layout with the following goals:
     o run performance tests
     o run monster tests
     o update the documentation (internal + external)
+        o also update documentation in btree_impl_pax.h
 
 o remove support for big endian. better now than later, and this will get
     rid of a lot of complexities

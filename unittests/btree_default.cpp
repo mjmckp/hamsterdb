@@ -651,14 +651,14 @@ struct DuplicateTableFixture
                   size_t num_records) {
     DuplicateTable dt((LocalDatabase *)m_db, inline_records, fixed_record_size);
 
-    ham_u64_t table_id = dt.allocate(record_data, num_records);
+    ham_u64_t table_id = dt.create(record_data, num_records);
     REQUIRE(table_id != 0);
     REQUIRE(dt.get_record_count() == num_records);
     REQUIRE(dt.get_record_capacity() == num_records * 2);
 
     DuplicateTable dt2((LocalDatabase *)m_db, inline_records,
                     fixed_record_size);
-    dt2.read_from_disk(table_id);
+    dt2.open(table_id);
     REQUIRE(dt2.get_record_count() == num_records);
     REQUIRE(dt2.get_record_capacity() == num_records * 2);
 
@@ -694,7 +694,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -731,7 +731,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -771,7 +771,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -817,7 +817,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
 
     // the model stores the records that we inserted
     std::vector<std::vector<ham_u8_t> > model;
@@ -862,7 +862,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
 
     // the model stores the records that we inserted
     std::vector<std::vector<ham_u8_t> > model;
@@ -908,7 +908,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -956,7 +956,7 @@ struct DuplicateTableFixture
     const size_t num_records = 100;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -1001,7 +1001,7 @@ struct DuplicateTableFixture
     const size_t num_records = 1000;
 
     // create an empty table
-    dt.allocate(0, 0);
+    dt.create(0, 0);
     REQUIRE(dt.get_record_count() == 0);
     REQUIRE(dt.get_record_capacity() == 0);
 
@@ -1545,7 +1545,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.allocate(&data[0], 300, sizeof(data));
+    ui.create(&data[0], 300, sizeof(data));
 
     REQUIRE(ui.get_freelist_count() == 0);
     REQUIRE(ui.get_capacity() == 300);
@@ -1554,7 +1554,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui2((LocalDatabase *)m_db);
     REQUIRE(ui2.get_full_index_size() == 4);
-    ui2.read_from_disk(&data[0]);
+    ui2.open(&data[0]);
     REQUIRE(ui2.get_freelist_count() == 0);
     REQUIRE(ui2.get_capacity() == 300);
     REQUIRE(ui2.get_next_offset(0) == 0);
@@ -1566,7 +1566,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.allocate(&data[0], 300, sizeof(data));
+    ui.create(&data[0], 300, sizeof(data));
 
     for (size_t i = 0; i < 300; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1581,7 +1581,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.allocate(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], kMax, sizeof(data));
 
     for (size_t i = 0; i < kMax; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1596,7 +1596,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.allocate(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], kMax, sizeof(data));
 
     for (size_t i = 0; i < kMax; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1613,7 +1613,7 @@ struct UpfrontIndexFixture
       REQUIRE(ui.get_chunk_offset(0) == i + 1);
     }
 
-    ui.allocate(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], kMax, sizeof(data));
 
     // fill again, then erase from behind
     for (size_t i = 0; i < kMax; i++) {
@@ -1639,7 +1639,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    ui.allocate(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], kMax, sizeof(data));
 
     size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1658,7 +1658,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    ui.allocate(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], kMax, sizeof(data));
 
     size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1695,7 +1695,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui1((LocalDatabase *)m_db);
-    ui1.allocate(&data1[0], kMax, sizeof(data1));
+    ui1.create(&data1[0], kMax, sizeof(data1));
 
     size_t bytes_left = sizeof(data1) - kMax * ui1.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1711,7 +1711,7 @@ struct UpfrontIndexFixture
     // at every possible position: split into page2, then merge, then compare
     for (size_t i = 0; i < capacity; i++) {
       UpfrontIndex ui2((LocalDatabase *)m_db);
-      ui2.allocate(&data2[0], kMax, sizeof(data2));
+      ui2.create(&data2[0], kMax, sizeof(data2));
       ui1.split(&ui2, capacity, i);
       ui1.merge_from(&ui2, capacity - i, i);
 

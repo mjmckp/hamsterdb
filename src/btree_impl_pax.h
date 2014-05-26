@@ -81,6 +81,14 @@ template<typename T>
 class PodKeyList
 {
   public:
+    enum {
+      // A flag whether this KeyList has sequential data
+      kHasSequentialData = 1,
+
+      // A flag whether SIMD style linear access is supported
+      kHasSimdSupport = 1
+    };
+
     // Constructor
     PodKeyList(LocalDatabase *db)
       : m_data(0) {
@@ -117,10 +125,17 @@ class PodKeyList
       ham_assert(!"shouldn't be here");
     }
 
-    // Copies a key into |dest|; memory must be allocated by the caller
-    void get_key(ham_u32_t slot, ham_key_t *dest) const {
-      memcpy(dest->data, &m_data[slot], sizeof(T));
+    // Copies a key into |dest|
+    void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) const {
       dest->size = sizeof(T);
+
+      // allocate memory (if required)
+      if (!(dest->flags & HAM_KEY_USER_ALLOC)) {
+        arena->resize(dest->size);
+        dest->data = arena->get_ptr();
+      }
+
+      memcpy(dest->data, &m_data[slot], sizeof(T));
     }
 
     // Erases the extended part of a key; nothing to do here
@@ -158,11 +173,6 @@ class PodKeyList
     // Returns a pointer to the key's data (const flavour)
     ham_u8_t *get_key_data(ham_u32_t slot) const {
       return ((ham_u8_t *)&m_data[slot]);
-    }
-
-    // Has support for SIMD style search?
-    bool has_simd_support() const {
-      return (true);
     }
 
     // Overwrites an existing key; the |size| of the new data HAS to be
@@ -245,6 +255,14 @@ class PodKeyList
 class BinaryKeyList
 {
   public:
+    enum {
+      // A flag whether this KeyList has sequential data
+      kHasSequentialData = 1,
+
+      // A flag whether SIMD style linear access is supported
+      kHasSimdSupport = 0
+    };
+
     // Constructor
     BinaryKeyList(LocalDatabase *db)
         : m_data(0) {
@@ -283,10 +301,17 @@ class BinaryKeyList
       ham_assert(!"shouldn't be here");
     }
 
-    // Copies a key into |dest|; memory must be allocated by the caller
-    void get_key(ham_u32_t slot, ham_key_t *dest) const {
-      memcpy(dest->data, &m_data[slot * m_key_size], m_key_size);
+    // Copies a key into |dest|
+    void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) const {
       dest->size = m_key_size;
+
+      // allocate memory (if required)
+      if (!(dest->flags & HAM_KEY_USER_ALLOC)) {
+        arena->resize(dest->size);
+        dest->data = arena->get_ptr();
+      }
+
+      memcpy(dest->data, &m_data[slot * m_key_size], m_key_size);
     }
 
     // Erases the extended part of a key; nothing to do here
@@ -327,11 +352,6 @@ class BinaryKeyList
     // Returns the pointer to a key's data (const flavour)
     ham_u8_t *get_key_data(ham_u32_t slot) const {
       return (&m_data[slot * m_key_size]);
-    }
-
-    // Has support for SIMD style search?
-    bool has_simd_support() const {
-      return (false);
     }
 
     // Overwrites a key's data. The |size| of the new data HAS
@@ -450,17 +470,20 @@ class DefaultRecordList
 
       // the record is stored inline
       if (is_record_inline(slot)) {
-        ham_u32_t size = get_inline_record_size(slot);
-        if (size == 0) {
+        record->size = get_inline_record_size(slot);
+        if (record->size == 0) {
           record->data = 0;
-          record->size = 0;
           return;
         }
         if (direct_access)
           record->data = (void *)get_record_data(slot);
-        else
-          memcpy(record->data, get_record_data(slot), size);
-        record->size = size;
+        else {
+          if ((record->flags & HAM_RECORD_USER_ALLOC) == 0) {
+            arena->resize(record->size);
+            record->data = arena->get_ptr();
+          }
+          memcpy(record->data, get_record_data(slot), record->size);
+        }
         return;
       }
 
@@ -724,13 +747,17 @@ class InternalRecordList
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
 
       // the record is stored inline
-      ham_u32_t size = sizeof(ham_u64_t);
+      record->size = sizeof(ham_u64_t);
 
       if (direct_access)
         record->data = (void *)get_record_data(slot);
-      else
-        memcpy(record->data, get_record_data(slot), size);
-      record->size = size;
+      else {
+        if ((record->flags & HAM_RECORD_USER_ALLOC) == 0) {
+          arena->resize(record->size);
+          record->data = arena->get_ptr();
+        }
+        memcpy(record->data, get_record_data(slot), record->size);
+      }
     }
 
     // Updates the record of a key
@@ -859,13 +886,17 @@ class InlineRecordList
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
 
       // the record is stored inline
-      ham_u32_t size = m_record_size;
+      record->size = m_record_size;
 
       if (direct_access)
         record->data = (void *)get_record_data(slot);
-      else
-        memcpy(record->data, get_record_data(slot), size);
-      record->size = size;
+      else {
+        if ((record->flags & HAM_RECORD_USER_ALLOC) == 0) {
+          arena->resize(record->size);
+          record->data = arena->get_ptr();
+        }
+        memcpy(record->data, get_record_data(slot), record->size);
+      }
     }
 
     // Updates the record of a key
@@ -1108,31 +1139,13 @@ class PaxNodeImpl
 
     // Returns a copy of a key and stores it in |dest|
     void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) const {
-      // allocate memory (if required)
-      if (!(dest->flags & HAM_KEY_USER_ALLOC)) {
-        ham_u32_t key_size = get_key_size(slot);
-        arena->resize(key_size);
-        dest->data = arena->get_ptr();
-        dest->size = key_size;
-      }
-
-      // and copy the key data
-      m_keys.get_key(slot, dest);
+      // copy (or assign) the key data
+      m_keys.get_key(slot, arena, dest);
     }
 
     // Returns the full record and stores it in |dest|
     void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags, ham_u32_t duplicate_index) const {
-      bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
-
-      // allocate memory, if required
-      if ((record->flags & HAM_RECORD_USER_ALLOC) == 0 && !direct_access) {
-        ham_u32_t record_size = get_record_size(slot);
-        arena->resize(record_size);
-        record->data = arena->get_ptr();
-        record->size = record_size;
-      }
-
       // copy the record data
       m_records.get_record(slot, duplicate_index, arena, record, flags);
     }
