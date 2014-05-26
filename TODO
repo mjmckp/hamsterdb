@@ -499,7 +499,7 @@ o Refactorings for the Default layout with the following goals:
     x erase_key
     x unittests for DuplicateTable
 
-    o UpfrontIndex has the following methods:
+    x UpfrontIndex has the following methods:
         -> requires: assigned space (char *data, size_t size)
         -> persist: freelist count, capacity (slots), next_offset,
                     total area size
@@ -534,23 +534,18 @@ o Refactorings for the Default layout with the following goals:
             x otherwise search through freelist
             x unittest in combination with can_allocate_space()
             o unittest: make use of freelist
-================
         x requires_split()
             calls can_allocate_slot() && can_allocate_space()
-        o split()
-        o merge()
-            o unittest: split, then merge. result should be equal to the
+        x split()
+        x merge()
+            x unittest: split, then merge. result should be equal to the
                 original.
-  - siehe TODO in split() und merge_from() - der ablauf stimmt nicht
-  - clear()-methode fehlt auch noch (setzt freelist counter und
-        rearrange-counter auf 0)
-  - unittest existiert schon 
-================
 
-    o terminology: chunk == region?
-
-    x remove from the layout, move into KeyList and RecordList
-        (as additional base class "IndexedList", or as a member)
+        x remove from the layout, move into KeyList and RecordList
+            (as additional base class "IndexedList", or as a member)
+        x terminology: chunk == region?
+        x perform a full review, add documentation
+        x implement rearrange()
 
     o DefLayout::BinaryKeyList no longer needs to store the size; the size
         is now managed in the UpfrontIndex
@@ -561,10 +556,9 @@ o Refactorings for the Default layout with the following goals:
     o requires_merge
     o split
     o merge_from
-===============
     o must set data pointers!! right now they're all initialized to the same
         address
-===============
+    -> from here on the tests should run again
 
     o there is lots of duplicate code in *DuplicateRecordList; move to
         base class
@@ -606,6 +600,8 @@ o Refactorings for the Default layout with the following goals:
     o new unittest for fixed binary keys with large size (1024) - will the
         file size explode because the capacity is calculated badly? 
 
+    o run performance tests
+    o run monster tests
     o update the documentation (internal + external)
 
 o remove support for big endian. better now than later, and this will get

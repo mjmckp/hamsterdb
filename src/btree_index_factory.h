@@ -343,27 +343,27 @@ struct BtreeIndexFactory
         // Variable keys with or without duplicates
         if (!is_leaf)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::InternalRecordList>,
                   CallbackCompare >());
         if (inline_records && !use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::InlineRecordList>,
                   CallbackCompare >());
         if (inline_records && use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         DefLayout::DuplicateInlineRecordList>,
                   CallbackCompare >());
         if (!inline_records && !use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::DefaultRecordList>,
                   CallbackCompare >());
         if (!inline_records && use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         DefLayout::DuplicateDefaultRecordList>,
                   CallbackCompare >());
         ham_assert(!"shouldn't be here");
@@ -408,27 +408,27 @@ struct BtreeIndexFactory
         // variable length keys, with and without duplicates
         if (!is_leaf)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::InternalRecordList>,
                   VariableSizeCompare >());
         if (inline_records && !use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::InlineRecordList>,
                   VariableSizeCompare >());
         if (inline_records && use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         DefLayout::DuplicateInlineRecordList>,
                   VariableSizeCompare >());
         if (!inline_records && !use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         PaxLayout::DefaultRecordList>,
                   VariableSizeCompare >());
         if (!inline_records && use_duplicates)
           return (new BtreeIndexTraitsImpl<
-                  DefaultNodeImpl<DefLayout::BinaryKeyList,
+                  DefaultNodeImpl<DefLayout::VariableLengthKeyList,
                         DefLayout::DuplicateDefaultRecordList>,
                   VariableSizeCompare >());
         ham_assert(!"shouldn't be here");

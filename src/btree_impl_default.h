@@ -137,7 +137,7 @@ class DuplicateTable
 
     // Allocates and fills the table; returns the new table id.
     // Can allocate empty tables (required for testing purposes).
-    ham_u64_t allocate(const ham_u8_t *data, size_t record_count) {
+    ham_u64_t create(const ham_u8_t *data, size_t record_count) {
       ham_assert(m_table_id == 0);
 
       // initial capacity is twice the current record count
@@ -155,7 +155,7 @@ class DuplicateTable
     }
 
     // Reads the table from disk
-    void read_from_disk(ham_u64_t table_id) {
+    void open(ham_u64_t table_id) {
       ham_record_t record = {0};
       m_db->get_local_env()->get_blob_manager()->read(m_db, table_id, &record,
                       0, &m_table);
@@ -488,8 +488,53 @@ class DuplicateTable
 };
 
 //
+// A helper class to sort ranges; used during validation of the up-front
+// index in check_index_integrity()
+//
+struct SortHelper {
+  ham_u32_t offset;
+  ham_u32_t slot;
+
+  bool operator<(const SortHelper &rhs) const {
+    return (offset < rhs.offset);
+  }
+};
+
+static bool
+sort_by_offset(const SortHelper &lhs, const SortHelper &rhs) {
+  return (lhs.offset < rhs.offset);
+}
+
+//
 // A small index which manages variable length buffers. Used to manage
-// variable length keys and records.
+// variable length keys or records.
+//
+// The UpfrontIndex manages a range of bytes, organized in variable length
+// |chunks|, assigned at initialization time when calling |allocate()|
+// or |open()|. 
+// 
+// These chunks are organized in |slots|, each slot stores the offset and
+// the size of the chunk data. The offset is stored as 16- or 32-bit, depending
+// on the page size. The size is always a 16bit integer.
+//
+// The number of used slots is not stored in the UpfrontIndex, since it is
+// already managed in the caller (this is equal to |PBtreeNode::get_count()|).
+//
+// Deleted chunks are moved to a |freelist|, which is simply a list of slots
+// directly following those slots that are in use.
+//
+// In addition, the UpfrontIndex keeps track of the unused space at the end
+// of the range (via |get_next_offset()|), in order to allow a fast
+// allocation of space.
+//
+// The UpfrontIndex stores metadata at the beginning:
+//     [0..3]   capacity (number of available slots)
+//     [4..7]   freelist count
+//     [8..11]  next offset
+//     [12..17] range size
+//
+// Data is stored in the following layout:
+// |metadata|slot1|slot2|...|slotN|free1|free2|...|freeM|data1|data2|...|dataN|
 //
 class UpfrontIndex
 {
@@ -514,17 +559,16 @@ class UpfrontIndex
 
     // Initialization routine; sets data pointer and the initial capacity
     // If |capacity| is 0 then use the value that is already stored in the page
-    void allocate(ham_u8_t *data, size_t capacity, size_t full_size_bytes) {
+    void create(ham_u8_t *data, size_t capacity, size_t full_size_bytes) {
       m_data = data;
       set_capacity(capacity);
-      set_freelist_count(0);
       set_full_size(full_size_bytes);
-      set_next_offset(kPayloadOffset + capacity * get_full_index_size());
+      clear();
     }
 
     // Initialization routine; sets data pointer and reads everything else
     // from that pointer
-    void read_from_disk(ham_u8_t *data) {
+    void open(ham_u8_t *data) {
       m_data = data;
     }
 
@@ -533,7 +577,7 @@ class UpfrontIndex
       return (m_sizeof_offset + kSizeofSize);
     }
 
-    // Returns the start offset of a slot
+    // Returns the start offset of a chunk
     ham_u32_t get_chunk_offset(ham_u32_t slot) const {
       ham_u8_t *p = &m_data[kPayloadOffset + get_full_index_size() * slot];
       if (m_sizeof_offset == 2)
@@ -557,22 +601,21 @@ class UpfrontIndex
       m_rearrange_counter++;
     }
 
-    // Returns true if this index has at least one free slot available
-    // |count| is the number of used slots (this is managed by the caller)
-    bool can_insert_slot(size_t count) const {
-      if (count < get_capacity())
+    // Returns true if this index has at least one free slot available.
+    // |node_count| is the number of used slots (this is managed by the caller)
+    bool can_insert_slot(size_t node_count) const {
+      if (node_count < get_capacity())
         return (true);
       return (get_freelist_count() > 0);
     }
 
-    // Inserts a slot at the position |slot| and initializes it with offset and
-    // size. |count| is the number of used slots (this is managed by the caller)
-    void insert_slot(ham_u32_t slot, size_t count,
-                    ham_u32_t offset, ham_u16_t size) {
-      ham_assert(can_insert_slot(count) == true);
+    // Inserts a slot at the position |slot|. |node_count| is the number of
+    // used slots (this is managed by the caller)
+    void insert_slot(ham_u32_t slot, size_t node_count) {
+      ham_assert(can_insert_slot(node_count) == true);
 
       size_t slot_size = get_full_index_size();
-      size_t total_count = count + get_freelist_count();
+      size_t total_count = node_count + get_freelist_count();
       ham_u8_t *p = &m_data[kPayloadOffset + slot_size * slot];
       if (total_count > 0 && slot < total_count) {
         // create a gap in the index
@@ -580,21 +623,14 @@ class UpfrontIndex
       }
 
       // now fill the gap
-      if (m_sizeof_offset == 2)
-        *(ham_u16_t *)p = ham_h2db16((ham_u16_t)offset);
-      else {
-        ham_assert(m_sizeof_offset == 4);
-        *(ham_u32_t *)p = ham_h2db32(offset);
-      }
-      p += m_sizeof_offset;
-      *(ham_u16_t *)p = ham_h2db16(size);
+      memset(p, 0, m_sizeof_offset + sizeof(ham_u16_t));
     }
 
     // Erases a slot at the position |slot|
-    // |count| is the number of used slots (this is managed by the caller)
-    void erase_slot(ham_u32_t slot, size_t count) {
+    // |node_count| is the number of used slots (this is managed by the caller)
+    void erase_slot(ham_u32_t slot, size_t node_count) {
       size_t slot_size = get_full_index_size();
-      size_t total_count = count + get_freelist_count();
+      size_t total_count = node_count + get_freelist_count();
 
       ham_assert(slot < total_count);
 
@@ -605,7 +641,7 @@ class UpfrontIndex
       // nothing to do if we delete the very last (used) slot; the freelist
       // counter was already incremented, the used counter is decremented
       // by the caller
-      if (slot == count - 1)
+      if (slot == node_count - 1)
         return;
 
       size_t chunk_offset = get_chunk_offset(slot);
@@ -622,44 +658,40 @@ class UpfrontIndex
 
     // Returns true if this page has enough space for at least |num_bytes|
     // bytes
-    bool can_allocate_space(ham_u32_t count, size_t num_bytes) {
+    bool can_allocate_space(ham_u32_t node_count, size_t num_bytes,
+                    bool no_rearrange = false) {
       // first check if we can append the data; this is the cheapest check,
       // therefore it comes first
-      if (get_next_offset(count) + num_bytes <= get_full_size())
+      if (get_next_offset(node_count) + num_bytes <= get_usable_data_size())
         return (true);
 
       // otherwise check the freelist
-      ham_u32_t total_count = count + get_freelist_count();
-      for (ham_u32_t i = count; i < total_count; i++)
+      ham_u32_t total_count = node_count + get_freelist_count();
+      for (ham_u32_t i = node_count; i < total_count; i++)
         if (get_chunk_size(i) >= num_bytes)
           return (true);
 
+      if (no_rearrange)
+        return (false);
+
       // does it make sense to rearrange the node?
       if (m_rearrange_counter > 0) {
-        rearrange(count);
+        rearrange(node_count);
         ham_assert(m_rearrange_counter == 0);
         // and try again
-        return (can_allocate_space(count, num_bytes));
+        return (can_allocate_space(node_count, num_bytes));
       }
       return (false);
     }
 
     // Allocates space for a |slot| and returns the offset of that chunk
-    ham_u32_t allocate_space(ham_u32_t count, ham_u32_t slot,
+    ham_u32_t allocate_space(ham_u32_t node_count, ham_u32_t slot,
                     size_t num_bytes) {
-      // first check if the region is already large enough; if yes then
-      // there's nothing to do
-      // TODO is this safe? what if the slot contains garbage and not valid
-      // data?
-      // TODO currently fails a unittest b/c it does not increase the
-      // freelist counter, and because the size value can be completely
-      // bogus
-      //if (get_chunk_size(slot) >= num_bytes)
-        //return (get_chunk_offset(slot));
+      ham_assert(can_allocate_space(node_count, num_bytes, true));
 
-      // otherwise try to allocate space at the end of the node
-      if (get_next_offset(count) + num_bytes <= get_full_size()) {
-        ham_u32_t offset = get_next_offset(count);
+      // try to allocate space at the end of the node
+      if (get_next_offset(node_count) + num_bytes <= get_usable_data_size()) {
+        ham_u32_t offset = get_next_offset(node_count);
         set_next_offset(offset + num_bytes);
         set_chunk_offset(slot, offset);
         set_chunk_size(slot, num_bytes);
@@ -667,8 +699,8 @@ class UpfrontIndex
       }
 
       // then check the freelist
-      ham_u32_t total_count = count + get_freelist_count();
-      for (ham_u32_t i = count; i < total_count; i++) {
+      ham_u32_t total_count = node_count + get_freelist_count();
+      for (ham_u32_t i = node_count; i < total_count; i++) {
         if (get_chunk_size(i) >= num_bytes) {
           // copy the chunk to the new slot
           set_chunk_size(slot, get_chunk_size(i));
@@ -688,15 +720,16 @@ class UpfrontIndex
     // Returns true if |key| cannot be inserted because a split is required.
     // Unlike implied by the name, this function will try to re-arrange the
     // node in order for the key to fit in.
-    bool requires_split(ham_u32_t count, const ham_key_t *key) {
-      return (!can_insert_slot(count) && !can_allocate_space(count, key->size));
+    bool requires_split(ham_u32_t node_count, const ham_key_t *key) {
+      return (!can_insert_slot(node_count)
+                && !can_allocate_space(node_count, key->size));
     }
 
     // Verifies that there are no overlapping chunks
-    void check_integrity(ham_u32_t count) {
+    void check_integrity(ham_u32_t node_count) const {
       typedef std::pair<ham_u32_t, ham_u32_t> Range;
       typedef std::vector<Range> RangeVec;
-      ham_u32_t total_count = count + get_freelist_count();
+      ham_u32_t total_count = node_count + get_freelist_count();
       RangeVec ranges;
       ranges.reserve(total_count);
       ham_u32_t next_offset = 0;
@@ -720,14 +753,14 @@ class UpfrontIndex
           }
         }
       }
-      if (next_offset != get_next_offset(count)) {
+      if (next_offset != get_next_offset(node_count)) {
         ham_trace(("integrity violated: next offset %d, cached offset %d",
-                    next_offset, get_next_offset(count)));
+                    next_offset, get_next_offset(node_count)));
         throw Exception(HAM_INTEGRITY_VIOLATED);
       }
-      if (next_offset != calc_next_offset(count)) {
+      if (next_offset != calc_next_offset(node_count)) {
         ham_trace(("integrity violated: next offset %d, calculated offset %d",
-                    next_offset, calc_next_offset(count)));
+                    next_offset, calc_next_offset(node_count)));
         throw Exception(HAM_INTEGRITY_VIOLATED);
       }
     }
@@ -735,34 +768,43 @@ class UpfrontIndex
     // Splits an index and moves all chunks starting from position |pivot|
     // to the other index.
     // The other index *must* be empty!
-    void split(UpfrontIndex *other, size_t count, size_t pivot) {
+    void split(UpfrontIndex *other, size_t node_count, size_t pivot) {
       other->clear();
 
-      // verify that the other node has enough space
-      // TODO if not: change the capacity!
-      ham_assert(other->get_capacity() >= count - pivot);
+      // make sure that the other node has enough capacity
+      if (other->get_capacity() < node_count - pivot)
+        other->set_capacity(node_count + pivot);
 
-      for (size_t i = pivot; i < pivot + count; i++) {
+      // now copy key by key
+      for (size_t i = pivot; i < node_count; i++) {
+        other->insert_slot(i - pivot, i - pivot);
         ham_u32_t size = get_chunk_size(i);
-        // TODO ugly - need to call allocate_space prior to insert_slot,
-        // but in practice this doesn't work
-        other->insert_slot(i - pivot, i - pivot, 0, size);
         ham_u32_t offset = other->allocate_space(i - pivot, i - pivot, size);
-        set_chunk_offset(i - pivot, offset);
-        memcpy(&other->m_data[i - pivot], &m_data[get_chunk_offset(i)], size);
+        memcpy(other->get_chunk_data(offset),
+                        get_chunk_data(get_chunk_offset(i)),
+                        size);
       }
 
-      m_rearrange_counter += count;
+      // this node has lost lots of its data - make sure that it will be
+      // rearranged as soon as more data is allocated
+      m_rearrange_counter += node_count;
+      set_freelist_count(0);
+      set_next_offset((ham_u32_t)-1);
     }
 
     // Merges all chunks from the |other| index to this index
-    void merge_from(UpfrontIndex *other, size_t count, size_t other_count) {
+    void merge_from(UpfrontIndex *other, size_t node_count,
+                    size_t other_node_count) {
       if (m_rearrange_counter)
-        rearrange(count);
+        rearrange(node_count);
       
-      for (size_t i = 0; i < other_count; i++) {
-        // TODO ugly - need to call allocate_space prior to insert_slot,
-        // but in practice this doesn't work
+      for (size_t i = 0; i < other_node_count; i++) {
+        insert_slot(i + node_count, i + node_count);
+        ham_u32_t size = other->get_chunk_size(i);
+        ham_u32_t offset = allocate_space(i + node_count, i + node_count, size);
+        memcpy(get_chunk_data(offset),
+                        other->get_chunk_data(other->get_chunk_offset(i)),
+                        size);
       }
 
       other->clear();
@@ -771,12 +813,66 @@ class UpfrontIndex
   private:
     friend class UpfrontIndexFixture;
 
+    // Returns a pointer to the actual data of a chunk
+    void *get_chunk_data(ham_u32_t offset) {
+      return (&m_data[kPayloadOffset
+                      + get_capacity() * get_full_index_size()
+                      + offset]);
+    }
+
+    // Resets the page
+    void clear() {
+      set_freelist_count(0);
+      set_next_offset(0);
+      m_rearrange_counter = 0;
+    }
+
+    // Returns the size (in bytes) where payload data can be stored
+    size_t get_usable_data_size() const {
+      return (get_full_size()
+                      - kPayloadOffset
+                      - get_capacity() * get_full_index_size());
+    }
+
     // Re-arranges the node: moves all keys sequentially to the beginning
     // of the key space, removes the whole freelist
-    void rearrange(ham_u32_t count) {
+    void rearrange(ham_u32_t node_count) {
       ham_assert(m_rearrange_counter > 0);
+
+      // get rid of the freelist - this node is now completely rewritten,
+      // and the freelist would just complicate things
+      set_freelist_count(0);
+
+      // make a copy of all indices (excluding the freelist)
+      SortHelper s[node_count];
+      for (ham_u32_t i = 0; i < node_count; i++) {
+        s[i].slot = i;
+        s[i].offset = get_chunk_offset(i);
+      }
+
+      // sort them by offset
+      std::sort(&s[0], &s[node_count], sort_by_offset);
+
+      // shift all keys to the left, get rid of all gaps at the front of the
+      // key data or between the keys
+      ham_u32_t next_offset = 0;
+      ham_u32_t start = kPayloadOffset
+                            + get_capacity() * get_full_index_size();
+      for (ham_u32_t i = 0; i < node_count; i++) {
+        ham_u32_t offset = s[i].offset;
+        ham_u32_t slot = s[i].slot;
+        ham_u32_t size = get_chunk_size(slot);
+        if (offset != next_offset) {
+          // shift key to the left
+          memmove(&m_data[start + next_offset], get_chunk_data(slot), size);
+          // store the new offset
+          set_chunk_offset(slot, next_offset);
+        }
+        next_offset += size;
+      }
+
+      set_next_offset(next_offset);
       m_rearrange_counter = 0;
-      return;
     }
 
     // Sets the start offset of a slot
@@ -816,18 +912,26 @@ class UpfrontIndex
     }
 
     // Returns the offset of the unused space at the end of the page
-    ham_u32_t get_next_offset(ham_u32_t count) {
+    ham_u32_t get_next_offset(ham_u32_t node_count) {
       ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
       if (ret == (ham_u32_t)-1) {
-        ret = calc_next_offset(count);
+        ret = calc_next_offset(node_count);
         set_next_offset(ret);
       }
       return (ret);
     }
 
+    // Returns the offset of the unused space at the end of the page
+    ham_u32_t get_next_offset(ham_u32_t node_count) const {
+      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
+      if (ret == (ham_u32_t)-1)
+        return calc_next_offset(node_count);
+      return (ret);
+    }
+
     // Calculates and returns the next offset; does not store it
-    ham_u32_t calc_next_offset(ham_u32_t count) const {
-      ham_u32_t total_count = count + get_freelist_count();
+    ham_u32_t calc_next_offset(ham_u32_t node_count) const {
+      ham_u32_t total_count = node_count + get_freelist_count();
       ham_u32_t next_offset = 0;
       for (ham_u32_t i = 0; i < total_count; i++) {
         ham_u32_t next = get_chunk_offset(i) + get_chunk_size(i);
@@ -864,15 +968,16 @@ class UpfrontIndex
 };
 
 //
-// Variable length keyslist
+// Variable length keys
 //
-class BinaryKeyList
+class VariableLengthKeyList
 {
     // for caching external keys
     typedef std::map<ham_u64_t, ByteArray> ExtKeyCache;
 
   public:
-    BinaryKeyList(LocalDatabase *db)
+    // Constructor
+    VariableLengthKeyList(LocalDatabase *db)
       : m_db(db), m_index(db), m_data(0), m_extkey_cache(0) {
       size_t page_size = db->get_local_env()->get_page_size();
       if (Globals::ms_extended_threshold)
@@ -887,8 +992,8 @@ class BinaryKeyList
       }
     }
 
-    // Destructor; clears the caches
-    ~BinaryKeyList() {
+    // Destructor; clears the cache
+    ~VariableLengthKeyList() {
       if (m_extkey_cache) {
         delete m_extkey_cache;
         m_extkey_cache = 0;
@@ -899,13 +1004,13 @@ class BinaryKeyList
     // |size| (in bytes)
     void create(ham_u8_t *ptr, size_t size, size_t capacity) {
       m_data = ptr;
-      m_index.allocate(m_data, capacity, size);
+      m_index.create(m_data, capacity, size);
     }
 
     // Opens an existing KeyList
     void open(ham_u8_t *ptr) {
       m_data = ptr;
-      m_index.read_from_disk(m_data);
+      m_index.open(m_data);
     }
 
     // Returns the actual key size including overhead; this is just a guess
@@ -1014,44 +1119,8 @@ class BinaryKeyList
         }
       }
 
-      //
       // also verify that the offsets and sizes are not overlapping
-      //
-#if 0
-      typedef std::pair<ham_u32_t, ham_u32_t> Range;
-      typedef std::vector<Range> RangeVec;
-      ham_u32_t total = count + m_index.get_freelist_count();
-      RangeVec ranges;
-      ranges.reserve(total);
-      ham_u32_t next_offset = 0;
-      for (ham_u32_t i = 0; i < total; i++) {
-        ham_u32_t next = m_index->get_key_data_offset(i)
-                    + get_inline_key_data_size(i);
-        if (next >= next_offset)
-          next_offset = next;
-        ranges.push_back(std::make_pair(m_index->get_key_data_offset(i),
-                             get_inline_key_data_size(i)));
-      }
-      std::sort(ranges.begin(), ranges.end());
-      for (ham_u32_t i = 0; i < ranges.size() - 1; i++) {
-        if (ranges[i].first + ranges[i].second > ranges[i + 1].first) {
-          ham_trace(("integrity violated: slot %u/%u overlaps with %lu",
-                      ranges[i].first, ranges[i].second,
-                      ranges[i + 1].first));
-          throw Exception(HAM_INTEGRITY_VIOLATED);
-        }
-      }
-      if (next_offset != m_index->get_next_offset()) {
-        ham_trace(("integrity violated: next offset %d, cached offset %d",
-                    next_offset, m_index->get_next_offset()));
-        throw Exception(HAM_INTEGRITY_VIOLATED);
-      }
-      if (next_offset != m_index->calc_next_offset(count)) {
-        ham_trace(("integrity violated: next offset %d, cached offset %d",
-                    next_offset, m_index->get_next_offset()));
-        throw Exception(HAM_INTEGRITY_VIOLATED);
-      }
-#endif
+      m_index.check_integrity(count);
     }
 
   private:
@@ -1148,7 +1217,7 @@ class DuplicateRecordList
 
       DuplicateTable *dt = new DuplicateTable(m_db, !m_store_flags,
                                 m_record_size);
-      dt->read_from_disk(table_id);
+      dt->open(table_id);
       (*m_duptable_cache)[table_id] = dt;
       return (dt);
     }
@@ -1278,7 +1347,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
         if (force_duptable) {
           DuplicateTable *dt = new DuplicateTable(m_db, !m_store_flags,
                                         m_record_size);
-          ham_u64_t table_id = dt->allocate(get_record_data(slot, 0), count);
+          ham_u64_t table_id = dt->create(get_record_data(slot, 0), count);
           table_id = dt->set_record(duplicate_index, record, flags,
                           new_duplicate_index);
           (*m_duptable_cache)[table_id] = dt;
@@ -1606,7 +1675,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
         if (force_duptable) {
           DuplicateTable *dt = new DuplicateTable(m_db, !m_store_flags,
                                         HAM_RECORD_SIZE_UNLIMITED);
-          ham_u64_t table_id = dt->allocate(get_record_data(slot, 0), count);
+          ham_u64_t table_id = dt->create(get_record_data(slot, 0), count);
           table_id = dt->set_record(duplicate_index, record, flags,
                           new_duplicate_index);
           (*m_duptable_cache)[table_id] = dt;
