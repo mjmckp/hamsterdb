@@ -91,18 +91,29 @@ class PodKeyList
 
     // Constructor
     PodKeyList(LocalDatabase *db)
-      : m_data(0) {
+      : m_data(0), m_capacity(0) {
     }
 
     // Creates a new PodKeyList starting at |ptr|, total size is
     // |size| (in bytes)
     void create(ham_u8_t *ptr, size_t size, size_t capacity) {
       m_data = (T *)ptr;
+      m_capacity = capacity;
     }
 
     // Opens an existing PodKeyList starting at |ptr|
     void open(ham_u8_t *ptr) {
       m_data = (T *)ptr;
+    }
+
+    // Returns the capacity of the range
+    size_t get_capacity() const {
+      return (m_capacity);
+    }
+
+    // Returns the full size of the range
+    size_t get_full_range_size() const {
+      return (m_capacity * get_full_key_size());
     }
 
     // Returns the actual key size including overhead
@@ -156,7 +167,7 @@ class PodKeyList
 
     // Copies |count| key from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t count, PodKeyList<T> &dest,
-                    ham_u32_t dstart) {
+                    size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(T) * count);
     }
 
@@ -239,6 +250,16 @@ class PodKeyList
       return (start + count - 1);
     }
 
+    // Returns true if the |key| no longer fits into the node
+    bool requires_split(size_t node_count, const ham_key_t *key) {
+      return (node_count >= m_capacity - 1);
+    }
+
+    // Returns true if the list can be resized
+    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+      return (new_node_count <= m_capacity);
+    }
+
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
@@ -247,6 +268,9 @@ class PodKeyList
   private:
     // The actual array of T's
     T *m_data;
+
+    // The capacity of m_data
+    size_t m_capacity;
 };
 
 //
@@ -265,7 +289,7 @@ class BinaryKeyList
 
     // Constructor
     BinaryKeyList(LocalDatabase *db)
-        : m_data(0) {
+        : m_data(0), m_capacity(0) {
       m_key_size = db->get_key_size();
       ham_assert(m_key_size != 0);
     }
@@ -274,6 +298,7 @@ class BinaryKeyList
     // |size| (in bytes)
     void create(ham_u8_t *ptr, size_t size, size_t capacity) {
       m_data = ptr;
+      m_capacity = capacity;
     }
 
     // Opens an existing PodKeyList starting at |ptr|
@@ -284,6 +309,16 @@ class BinaryKeyList
     // Returns the actual key size including overhead
     ham_u16_t get_full_key_size() const {
       return (m_key_size);
+    }
+
+    // Returns the capacity of the range
+    size_t get_capacity() const {
+      return (m_capacity);
+    }
+
+    // Returns the full size of the range
+    size_t get_full_range_size() const {
+      return (m_capacity * m_key_size);
     }
 
     // Iterates all keys, calls the |visitor| on each
@@ -334,7 +369,7 @@ class BinaryKeyList
 
     // Copies |count| key from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t count, BinaryKeyList &dest,
-                    ham_u32_t dstart) {
+                    size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_data[dstart * m_key_size], &m_data[sstart * m_key_size],
                       m_key_size * count);
     }
@@ -413,6 +448,16 @@ class BinaryKeyList
       return (start + count - 1);
     }
 
+    // Returns true if the |key| no longer fits into the node
+    bool requires_split(size_t node_count, const ham_key_t *key) {
+      return (node_count >= m_capacity - 1);
+    }
+
+    // Returns true if the list can be resized
+    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+      return (new_node_count <= m_capacity);
+    }
+
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
@@ -424,6 +469,9 @@ class BinaryKeyList
 
     // Pointer to the actual key data
     ham_u8_t *m_data;
+
+    // The capacity of m_data
+    size_t m_capacity;
 };
 
 //
@@ -436,13 +484,14 @@ class DefaultRecordList
   public:
     // Constructor
     DefaultRecordList(LocalDatabase *db, PBtreeNode *node)
-      : m_db(db), m_flags(0), m_data(0) {
+      : m_db(db), m_flags(0), m_data(0), m_capacity(0) {
     }
 
     // Sets the data pointer; required for initialization
     void initialize(ham_u8_t *ptr, size_t capacity) {
       m_flags = ptr;
       m_data = (ham_u64_t *)&ptr[capacity];
+      m_capacity = capacity;
     }
 
     // Returns the actual record size including overhead
@@ -581,7 +630,7 @@ class DefaultRecordList
 
     // Copies |count| records from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t count, DefaultRecordList &dest,
-                    ham_u32_t dstart) {
+                    size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_flags[dstart], &m_flags[sstart], count);
       memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(ham_u64_t) * count);
     }
@@ -659,6 +708,16 @@ class DefaultRecordList
       m_flags[slot] = flags;
     }
 
+    // Returns true if there's not enough space for another record
+    bool requires_split(size_t node_count) {
+      return (node_count >= m_capacity - 1);
+    }
+
+    // Returns true if the list can be resized
+    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+      return (new_node_count <= m_capacity);
+    }
+
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
@@ -708,6 +767,9 @@ class DefaultRecordList
 
     // The actual record data - an array of 64bit record IDs
     ham_u64_t *m_data;
+
+    // The capacity of m_data
+    size_t m_capacity;
 };
 
 //
@@ -720,12 +782,13 @@ class InternalRecordList
   public:
     // Constructor
     InternalRecordList(LocalDatabase *db, PBtreeNode *node)
-      : m_db(db), m_data(0) {
+      : m_db(db), m_data(0), m_capacity(0) {
     }
 
     // Sets the data pointer
     void initialize(ham_u8_t *ptr, size_t capacity) {
       m_data = (ham_u64_t *)ptr;
+      m_capacity = capacity;
     }
 
     // Returns the actual size including overhead
@@ -788,7 +851,7 @@ class InternalRecordList
 
     // Copies |count| records from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t count, InternalRecordList &dest,
-                    ham_u32_t dstart) {
+                    size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(ham_u64_t) * count);
     }
 
@@ -835,6 +898,16 @@ class InternalRecordList
       return (0);
     }
 
+    // Returns true if there's not enough space for another record
+    bool requires_split(size_t node_count) {
+      return (node_count >= m_capacity - 1);
+    }
+
+    // Returns true if the list can be resized
+    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+      return (new_node_count <= m_capacity);
+    }
+
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
@@ -846,6 +919,9 @@ class InternalRecordList
 
     // The record data is an array of page IDs
     ham_u64_t *m_data;
+
+    // The capacity of m_data
+    size_t m_capacity;
 };
 
 //
@@ -858,13 +934,15 @@ class InlineRecordList
   public:
     // Constructor
     InlineRecordList(LocalDatabase *db, PBtreeNode *node)
-      : m_db(db), m_record_size(db->get_record_size()), m_data(0), m_dummy(0) {
+      : m_db(db), m_record_size(db->get_record_size()), m_data(0), m_dummy(0),
+        m_capacity(0) {
       ham_assert(m_record_size != HAM_RECORD_SIZE_UNLIMITED);
     }
 
     // Sets the data pointer
     void initialize(ham_u8_t *ptr, size_t capacity) {
       m_data = (ham_u8_t *)ptr;
+      m_capacity = capacity;
     }
 
     // Returns the actual record size including overhead
@@ -928,7 +1006,7 @@ class InlineRecordList
 
     // Copies |count| records from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t count, InlineRecordList &dest,
-                    ham_u32_t dstart) {
+                    size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_data[dstart], &m_data[sstart], m_record_size * count);
     }
 
@@ -983,6 +1061,16 @@ class InlineRecordList
       return (0);
     }
 
+    // Returns true if there's not enough space for another record
+    bool requires_split(size_t node_count) {
+      return (node_count >= m_capacity - 1);
+    }
+
+    // Returns true if the list can be resized
+    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+      return (new_node_count <= m_capacity);
+    }
+
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
@@ -1000,6 +1088,9 @@ class InlineRecordList
 
     // dummy data for record pointers (if record size == 0)
     ham_u64_t m_dummy;
+
+    // The capacity of m_data
+    size_t m_capacity;
 };
 
 } // namespace PaxLayout
@@ -1030,6 +1121,7 @@ class PaxNodeImpl
       }
       else {
         m_keys.open(&p[0]);
+        m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
       }
     }
 
@@ -1235,7 +1327,7 @@ class PaxNodeImpl
     }
 
     // Returns true if |key| cannot be inserted because a split is required
-    bool requires_split() const {
+    bool requires_split(const ham_key_t *key) const {
       return (m_node->get_count() >= m_capacity - 1);
     }
 
@@ -1243,6 +1335,7 @@ class PaxNodeImpl
     // at the |pivot| slot
     void split(PaxNodeImpl *other, int pivot) {
       ham_u32_t count = m_node->get_count();
+      ham_u32_t other_count = other->m_node->get_count();
 
       //
       // if a leaf page is split then the pivot element must be inserted in
@@ -1253,12 +1346,16 @@ class PaxNodeImpl
       // parent node. the pivot element is skipped.
       //
       if (m_node->is_leaf()) {
-        m_keys.copy_to(pivot, count - pivot, other->m_keys, 0);
-        m_records.copy_to(pivot, count - pivot, other->m_records, 0);
+        m_keys.copy_to(pivot, count - pivot, other->m_keys,
+                        other_count, 0);
+        m_records.copy_to(pivot, count - pivot, other->m_records,
+                       other_count,  0);
       }
       else {
-        m_keys.copy_to(pivot + 1, count - pivot - 1, other->m_keys, 0);
-        m_records.copy_to(pivot + 1, count - pivot - 1, other->m_records, 0);
+        m_keys.copy_to(pivot + 1, count - pivot - 1, other->m_keys,
+                       other_count,  0);
+        m_records.copy_to(pivot + 1, count - pivot - 1, other->m_records,
+                       other_count,  0);
       }
     }
 
@@ -1270,10 +1367,11 @@ class PaxNodeImpl
     // Merges this node with the |other| node
     void merge_from(PaxNodeImpl *other) {
       ham_u32_t count = m_node->get_count();
+      ham_u32_t other_count = other->m_node->get_count();
 
       // shift items from the sibling to this page
-      other->m_keys.copy_to(0, other->m_node->get_count(), m_keys, count);
-      other->m_records.copy_to(0, other->m_node->get_count(), m_records, count);
+      other->m_keys.copy_to(0, other_count, m_keys, count, count);
+      other->m_records.copy_to(0, other_count, m_records, count, count);
     }
 
     // Clears the page with zeroes and reinitializes it

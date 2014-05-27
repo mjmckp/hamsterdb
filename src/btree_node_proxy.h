@@ -209,7 +209,7 @@ class BtreeNodeProxy
     virtual void insert(ham_u32_t slot, const ham_key_t *key) = 0;
 
     // Returns true if a node requires a split to insert a new |key|
-    virtual bool requires_split() = 0;
+    virtual bool requires_split(const ham_key_t *key) = 0;
 
     // Returns true if a node requires a merge or a shift
     virtual bool requires_merge() const = 0;
@@ -546,8 +546,8 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
     }
 
     // Returns true if a node requires a split to insert |key|
-    virtual bool requires_split() {
-      return (m_impl.requires_split());
+    virtual bool requires_split(const ham_key_t *key) {
+      return (m_impl.requires_split(key));
     }
 
     // Returns true if a node requires a merge or a shift

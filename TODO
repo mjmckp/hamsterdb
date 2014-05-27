@@ -554,28 +554,40 @@ o Refactorings for the Default layout with the following goals:
         x do not access data[offset] directly because it is not an absolute
             address!
 
-    o erase: forward to the modules (shrink_space)
-    o insert: forward to the modules (make_space)
-            (started, but not complete)
-    o requires_split
+    x erase: forward to the modules (shrink_space)
+    x insert: forward to the modules (make_space)
     x requires_merge
-    o split
-    o merge_from
-    o must set data pointers!! right now they're all initialized to the same
+    x requires_split
+    x split
+    x merge_from
+    o resize
+        o after resize: update capacity in the statistics
+        o unittest: start with low capacity; resize till the node is
+            full, keep inserting. then verify that the data is correct
+
+    x call check_index_integrity() before/after every modification
+    x must set data pointers!! right now they're all initialized to the same
         address
     -> from here on the tests should run again
+        -> maybe start with PAX because they used to work...
+        --> PAX works great, 10% faster than before
 
+    o rename "count" to "node_count", once more review and make sure that
+        the order of the methods is identical in all classes,
+        and that the order of the parameters is consistent
+
+    o there is lots of duplicate code in the PaxRecordLists; move to
+        common base class
     o there is lots of duplicate code in *DuplicateRecordList; move to
-        base class
+        common base class
         o or can we merge the two duplicate RecordLists? 
     
-    o call check_index_integrity() before/after every modification
     x pax and default: get_record() calls get_record_size(), which is expensive
         -> move arena allocation to the RecordList
         x same for get_key()
-    o do we really need get_record_id/set_record_id? not convinced...
-
     x btree_index_factory has many TODOs
+
+    o do we really need get_record_id/set_record_id? not convinced...
     o get rid of test_set_key() - it requires many unnecessary functions
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
@@ -608,7 +620,7 @@ o Refactorings for the Default layout with the following goals:
         different page sizes (i.e. the offset type is chosen dynamically)
 
     o new unittest for fixed binary keys with large size (1024) - will the
-        file size explode because the capacity is calculated badly? 
+        file size explode because the capacity is wrong? 
 
     o run performance tests
     o run monster tests
@@ -618,6 +630,7 @@ o Refactorings for the Default layout with the following goals:
 o remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
     o also from documentation, webpage
+    o add documentation that database is host-endian
 
 o the steps above will create an incompatible file format
     o increment file version
@@ -737,7 +750,7 @@ o documentation TODOs for 2.1.8
         downloading, creating support requests etc
     o pick an awesome design
         i.e. similar to http://foundationdb.com, http://laravel.com,
-        http://rethinkdb.com
+        http://rethinkdb.com, http://www.orientechnologies.com
     o pick a framework for routing and infrastructure (phalcon? laravel?)
     o page contents are written in markdown, textile or
         reStructuredText (http://sphinx-doc.org/rest.html)
@@ -836,6 +849,10 @@ o PRO: use grouped varints for compressing int32/int64, record IDs and
         fast random access?
 
 ------------- hamsterdb 2.1.9 ---------------------------------------
+
+o hola: use sum-prefix-trees to precalculate partial sums/results?
+    they could be stored in a btree, and used to dynamically recalculate
+    requested values 
 
 o use cache-oblivious b-tree layout
     -> http://supertech.csail.mit.edu/cacheObliviousBTree.html

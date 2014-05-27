@@ -174,7 +174,7 @@ class BtreeInsertAction
     }
 
     bool split_required(BtreeNodeProxy *node) {
-      return (node->requires_split());
+      return (node->requires_split(m_key));
     }
 
     ham_status_t insert() {
