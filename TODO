@@ -560,10 +560,12 @@ o Refactorings for the Default layout with the following goals:
     x requires_split
     x split
     x merge_from
-    o resize
-        o after resize: update capacity in the statistics
-        o unittest: start with low capacity; resize till the node is
-            full, keep inserting. then verify that the data is correct
+    x resize -- try to avoid, too complex
+
+    x pax and default: get_record() calls get_record_size(), which is expensive
+        -> move arena allocation to the RecordList
+        x same for get_key()
+    x btree_index_factory has many TODOs
 
     x call check_index_integrity() before/after every modification
     x must set data pointers!! right now they're all initialized to the same
@@ -572,9 +574,18 @@ o Refactorings for the Default layout with the following goals:
         -> maybe start with PAX because they used to work...
         --> PAX works great, 10% faster than before
 
+    o when appending a duplicate then currently the whole list is copied
+        to new space, even if the current slot has enough space assigned,
+        or if the size could be increased without problems
+    o fix the remaining TODOs in btree_impl_default.h
+    o resize: should track different statistics for leaf and internal nodes!
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
         and that the order of the parameters is consistent
+        o also review pax layout
+    o the m_recalc_counter could store the number of free bytes; then it's
+        easier to figure out whether a rearrange would make sense or not
+    o is RecordList::clear really required?
 
     o there is lots of duplicate code in the PaxRecordLists; move to
         common base class
@@ -582,11 +593,6 @@ o Refactorings for the Default layout with the following goals:
         common base class
         o or can we merge the two duplicate RecordLists? 
     
-    x pax and default: get_record() calls get_record_size(), which is expensive
-        -> move arena allocation to the RecordList
-        x same for get_key()
-    x btree_index_factory has many TODOs
-
     o do we really need get_record_id/set_record_id? not convinced...
     o get rid of test_set_key() - it requires many unnecessary functions
     o get rid of enumerate() - it uses get_key_data() without even checking
@@ -602,6 +608,7 @@ o Refactorings for the Default layout with the following goals:
         - btree_impl_duplicate
         - btree_impl_common
     o btree_flags: kHasNoRecords still required?
+    o btree_flags: kInitialized still required?
 
     o make sure there are no memory leaks with duplicate tables + in-memory
         blobs
@@ -627,10 +634,10 @@ o Refactorings for the Default layout with the following goals:
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 
-o remove support for big endian. better now than later, and this will get
-    rid of a lot of complexities
-    o also from documentation, webpage
-    o add documentation that database is host-endian
+o default layout: the lookup operations are relatively slow compared to PAX;
+    can we somehow improve this?
+    o maybe the work above is already enough?
+    o run profiling on a read-only workload, w/o records
 
 o the steps above will create an incompatible file format
     o increment file version
@@ -642,6 +649,11 @@ o the steps above will create an incompatible file format
         o PAX Layout: can compress the flags for the DefaultRecordList
         o Default Layout: can compress the flags for the Duplicate*RecordList
 
+o remove support for big endian. better now than later, and this will get
+    rid of a lot of complexities
+    o also from documentation, webpage
+    o add documentation that database is host-endian
+
 o can we add a generic macro like this:
     #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
     which can be used as an initializer:
@@ -651,11 +663,6 @@ o can we add a generic macro like this:
     o use in source
     o use in unittests
     o document
-
-o default layout: the lookup operations are relatively slow compared to PAX;
-    can we somehow improve this?
-    o maybe the work above is already enough?
-    o run profiling on a read-only workload, w/o records
 
 o split cursor.cc in two files because gcc can run out of memory when compiling
 

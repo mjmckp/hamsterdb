@@ -96,8 +96,8 @@ class PodKeyList
 
     // Creates a new PodKeyList starting at |ptr|, total size is
     // |size| (in bytes)
-    void create(ham_u8_t *ptr, size_t size, size_t capacity) {
-      m_data = (T *)ptr;
+    void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
+      m_data = (T *)data;
       m_capacity = capacity;
     }
 
@@ -155,7 +155,9 @@ class PodKeyList
 
     // Erases a whole slot by shifting all larger keys to the "left"
     void shrink_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot], &m_data[slot + 1], sizeof(T) * (count - slot - 1));
+      if (slot < count - 1)
+        memmove(&m_data[slot], &m_data[slot + 1],
+                        sizeof(T) * (count - slot - 1));
     }
 
     // Inserts a key
@@ -256,7 +258,8 @@ class PodKeyList
     }
 
     // Returns true if the list can be resized
-    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+    bool can_increase_capacity(size_t current_node_count,
+                    size_t new_node_count) const {
       return (new_node_count <= m_capacity);
     }
 
@@ -296,8 +299,8 @@ class BinaryKeyList
 
     // Creates a new KeyList starting at |ptr|, total size is
     // |size| (in bytes)
-    void create(ham_u8_t *ptr, size_t size, size_t capacity) {
-      m_data = ptr;
+    void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
+      m_data = data;
       m_capacity = capacity;
     }
 
@@ -355,7 +358,8 @@ class BinaryKeyList
 
     // Erases a whole slot by shifting all larger keys to the "left"
     void shrink_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot * m_key_size], &m_data[(slot + 1) * m_key_size],
+      if (slot < count - 1)
+        memmove(&m_data[slot * m_key_size], &m_data[(slot + 1) * m_key_size],
                       m_key_size * (count - slot - 1));
     }
 
@@ -454,7 +458,8 @@ class BinaryKeyList
     }
 
     // Returns true if the list can be resized
-    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+    bool can_increase_capacity(size_t current_node_count,
+                    size_t new_node_count) const {
       return (new_node_count <= m_capacity);
     }
 
@@ -488,9 +493,15 @@ class DefaultRecordList
     }
 
     // Sets the data pointer; required for initialization
-    void initialize(ham_u8_t *ptr, size_t capacity) {
-      m_flags = ptr;
-      m_data = (ham_u64_t *)&ptr[capacity];
+    void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
+      m_flags = data;
+      m_data = (ham_u64_t *)&data[capacity];
+      m_capacity = capacity;
+    }
+
+    // Opens an existing RecordList
+    void open(ham_u8_t *ptr, size_t capacity) {
+      m_data = (ham_u64_t *)ptr;
       m_capacity = capacity;
     }
 
@@ -616,9 +627,11 @@ class DefaultRecordList
 
     // Erases a whole slot by shifting all larger records to the "left"
     void shrink_space(ham_u32_t slot, ham_u32_t count) {
-      memmove(&m_flags[slot], &m_flags[slot + 1], count - slot - 1);
-      memmove(&m_data[slot], &m_data[slot + 1],
-                      sizeof(ham_u64_t) * (count - slot - 1));
+      if (slot < count - 1) {
+        memmove(&m_flags[slot], &m_flags[slot + 1], count - slot - 1);
+        memmove(&m_data[slot], &m_data[slot + 1],
+                        sizeof(ham_u64_t) * (count - slot - 1));
+      }
     }
 
     // Creates space for one additional record
@@ -691,7 +704,7 @@ class DefaultRecordList
       }
     }
 
-    // Clears a record
+    // Clears a record TODO required?
     void clear(ham_u32_t slot) {
       m_data[slot] = 0;
       m_flags[slot] = 0;
@@ -714,7 +727,8 @@ class DefaultRecordList
     }
 
     // Returns true if the list can be resized
-    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+    bool can_increase_capacity(size_t current_node_count,
+                    size_t new_node_count) const {
       return (new_node_count <= m_capacity);
     }
 
@@ -786,7 +800,13 @@ class InternalRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity) {
+    void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
+      m_data = (ham_u64_t *)data;
+      m_capacity = capacity;
+    }
+
+    // Opens an existing RecordList
+    void open(ham_u8_t *ptr, size_t capacity) {
       m_data = (ham_u64_t *)ptr;
       m_capacity = capacity;
     }
@@ -839,7 +859,8 @@ class InternalRecordList
 
     // Erases a whole slot by shifting all larger records to the "left"
     void shrink_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot], &m_data[slot + 1],
+      if (slot < count - 1)
+        memmove(&m_data[slot], &m_data[slot + 1],
                       sizeof(ham_u64_t) * (count - slot - 1));
     }
 
@@ -887,7 +908,7 @@ class InternalRecordList
       m_data[slot] = *(ham_u64_t *)ptr;
     }
 
-    // Clears a record
+    // Clears a record TODO required?
     void clear(ham_u32_t slot) {
       m_data[slot] = 0;
     }
@@ -904,7 +925,8 @@ class InternalRecordList
     }
 
     // Returns true if the list can be resized
-    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+    bool can_increase_capacity(size_t current_node_count,
+                    size_t new_node_count) const {
       return (new_node_count <= m_capacity);
     }
 
@@ -940,8 +962,14 @@ class InlineRecordList
     }
 
     // Sets the data pointer
-    void initialize(ham_u8_t *ptr, size_t capacity) {
-      m_data = (ham_u8_t *)ptr;
+    void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
+      m_data = (ham_u8_t *)data;
+      m_capacity = capacity;
+    }
+
+    // Opens an existing RecordList
+    void open(ham_u8_t *ptr, size_t capacity) {
+      m_data = ptr;
       m_capacity = capacity;
     }
 
@@ -994,7 +1022,8 @@ class InlineRecordList
 
     // Erases a whole slot by shifting all larger records to the "left"
     void shrink_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot], &m_data[slot + 1],
+      if (slot < count - 1)
+        memmove(&m_data[slot], &m_data[slot + 1],
                       m_record_size * (count - slot - 1));
     }
 
@@ -1049,7 +1078,7 @@ class InlineRecordList
         memcpy(&m_data[m_record_size * slot], ptr, size);
     }
 
-    // Clears a record
+    // Clears a record TODO required?
     void clear(ham_u32_t slot) {
       if (m_record_size)
         memset(&m_data[m_record_size * slot], 0, m_record_size);
@@ -1067,7 +1096,8 @@ class InlineRecordList
     }
 
     // Returns true if the list can be resized
-    bool can_resize(size_t current_node_count, size_t new_node_count) const {
+    bool can_increase_capacity(size_t current_node_count,
+                    size_t new_node_count) const {
       return (new_node_count <= m_capacity);
     }
 
@@ -1117,11 +1147,13 @@ class PaxNodeImpl
       if (m_node->get_count() == 0) {
         m_keys.create(&p[0], m_capacity * m_keys.get_full_key_size(),
                 m_capacity);
-        m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
+        m_records.create(&p[m_capacity * get_key_size(0)],
+                        m_capacity * m_records.get_full_record_size(),
+                        m_capacity);
       }
       else {
         m_keys.open(&p[0]);
-        m_records.initialize(&p[m_capacity * get_key_size(0)], m_capacity);
+        m_records.open(&p[m_capacity * get_key_size(0)], m_capacity);
       }
     }
 
@@ -1305,10 +1337,8 @@ class PaxNodeImpl
     void erase(ham_u32_t slot) {
       ham_u32_t count = m_node->get_count();
 
-      if (slot != count - 1) {
-        m_keys.shrink_space(slot, count);
-        m_records.shrink_space(slot, count);
-      }
+      m_keys.shrink_space(slot, count);
+      m_records.shrink_space(slot, count);
     }
 
     // Inserts a new key
@@ -1323,7 +1353,7 @@ class PaxNodeImpl
 
       if (count > slot)
         m_records.make_space(slot, count);
-      m_records.clear(slot); // TODO required?
+      m_records.clear(slot);
     }
 
     // Returns true if |key| cannot be inserted because a split is required

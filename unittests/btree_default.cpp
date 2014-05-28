@@ -107,8 +107,9 @@ struct BtreeDefaultFixture {
     ham_record_t rec = {0};
     char buffer[BUFFER] = {0};
 
+    int i = 0;
     for (IntVector::const_iterator it = inserts.begin();
-            it != inserts.end(); it++) {
+            it != inserts.end(); it++, i++) {
       key = makeKey(*it, buffer);
       if (m_rec_size != HAM_RECORD_SIZE_UNLIMITED) {
         rec.data = &buffer[0];
@@ -116,6 +117,17 @@ struct BtreeDefaultFixture {
       }
       REQUIRE(0 == ham_db_insert(m_db, 0, &key, &rec,
                               m_duplicates ? HAM_DUPLICATE : 0));
+
+      ham_cursor_t *cursor = 0;
+      int j = 0;
+      REQUIRE(0 == ham_cursor_create(&cursor, m_db, 0, 0));
+      for (IntVector::const_iterator it2 = inserts.begin();
+              j <= i; it2++, j++) {
+        makeKey(*it2, buffer);
+        REQUIRE(0 == ham_cursor_move(cursor, &key, &rec, HAM_CURSOR_NEXT));
+        REQUIRE(0 == strcmp((const char *)key.data, buffer));
+      }
+      ham_cursor_close(cursor);
     }
 
     ham_cursor_t *cursor = 0;
@@ -135,8 +147,7 @@ struct BtreeDefaultFixture {
       REQUIRE(key.size == expected.size);
     }
 
-    if (cursor)
-      ham_cursor_close(cursor);
+    ham_cursor_close(cursor);
 
     // now loop again, but in reverse order
     REQUIRE(0 == ham_cursor_create(&cursor, m_db, 0, 0));
@@ -421,7 +432,7 @@ TEST_CASE("BtreeDefault/insertDuplicatesTest", "")
   if (ham_is_pro_evaluation() == 0) {
     std::string abi;
     abi = ((LocalDatabase *)f.m_db)->get_btree_index()->test_get_classname();
-    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefaultKeyList<unsigned short, true>, hamsterdb::DefaultInlineRecordImpl<hamsterdb::DefaultKeyList<unsigned short, true>, true> >, hamsterdb::VariableSizeCompare>");
+    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefLayout::VariableLengthKeyList, hamsterdb::DefLayout::DuplicateDefaultRecordList>, hamsterdb::VariableSizeCompare>");
   }
 #endif
 }
@@ -566,7 +577,7 @@ TEST_CASE("BtreeDefault/varKeysFixedRecordsTest", "")
   if (ham_is_pro_evaluation() == 0) {
     std::string abi;
     abi = ((LocalDatabase *)f.m_db)->get_btree_index()->test_get_classname();
-    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefaultKeyList<unsigned short, false>, hamsterdb::FixedInlineRecordImpl<hamsterdb::DefaultKeyList<unsigned short, false> > >, hamsterdb::VariableSizeCompare>");
+    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefLayout::VariableLengthKeyList, hamsterdb::PaxLayout::InlineRecordList>, hamsterdb::VariableSizeCompare>");
   }
 #endif
 }
@@ -588,7 +599,7 @@ TEST_CASE("BtreeDefault/fixedKeysAndRecordsWithDuplicatesTest", "")
   if (ham_is_pro_evaluation() == 0) {
     std::string abi;
     abi = ((LocalDatabase *)f.m_db)->get_btree_index()->test_get_classname();
-    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::FixedKeyList<unsigned short, true>, hamsterdb::FixedInlineRecordImpl<hamsterdb::FixedKeyList<unsigned short, true> > >, hamsterdb::NumericCompare<unsigned int> >");
+    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::PaxLayout::PodKeyList<unsigned int>, hamsterdb::DefLayout::DuplicateInlineRecordList>, hamsterdb::NumericCompare<unsigned int> >");
   }
 #endif
 
@@ -613,7 +624,7 @@ TEST_CASE("BtreeDefault/fixedRecordsWithDuplicatesTest", "")
   if (ham_is_pro_evaluation() == 0) {
     std::string abi;
     abi = ((LocalDatabase *)f.m_db)->get_btree_index()->test_get_classname();
-    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefaultKeyList<unsigned short, true>, hamsterdb::FixedInlineRecordImpl<hamsterdb::DefaultKeyList<unsigned short, true> > >, hamsterdb::VariableSizeCompare>");
+    REQUIRE(abi == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::DefLayout::VariableLengthKeyList, hamsterdb::DefLayout::DuplicateInlineRecordList>, hamsterdb::VariableSizeCompare>");
   }
 #endif
 
@@ -1545,7 +1556,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.create(&data[0], 300, sizeof(data));
+    ui.create(&data[0], sizeof(data), 300);
 
     REQUIRE(ui.get_freelist_count() == 0);
     REQUIRE(ui.get_capacity() == 300);
@@ -1566,7 +1577,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.create(&data[0], 300, sizeof(data));
+    ui.create(&data[0], sizeof(data), 300);
 
     for (size_t i = 0; i < 300; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1581,7 +1592,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.create(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], sizeof(data), kMax);
 
     for (size_t i = 0; i < kMax; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1596,7 +1607,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui((LocalDatabase *)m_db);
     REQUIRE(ui.get_full_index_size() == 4);
-    ui.create(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], sizeof(data), kMax);
 
     for (size_t i = 0; i < kMax; i++) {
       REQUIRE(ui.can_insert_slot(i) == true);
@@ -1613,7 +1624,7 @@ struct UpfrontIndexFixture
       REQUIRE(ui.get_chunk_offset(0) == i + 1);
     }
 
-    ui.create(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], sizeof(data), kMax);
 
     // fill again, then erase from behind
     for (size_t i = 0; i < kMax; i++) {
@@ -1639,7 +1650,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    ui.create(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], sizeof(data), kMax);
 
     size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1658,7 +1669,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    ui.create(&data[0], kMax, sizeof(data));
+    ui.create(&data[0], sizeof(data), kMax);
 
     size_t bytes_left = sizeof(data) - kMax * ui.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1695,7 +1706,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui1((LocalDatabase *)m_db);
-    ui1.create(&data1[0], kMax, sizeof(data1));
+    ui1.create(&data1[0], sizeof(data1), kMax);
 
     size_t bytes_left = sizeof(data1) - kMax * ui1.get_full_index_size()
             - UpfrontIndex::kPayloadOffset;
@@ -1711,7 +1722,7 @@ struct UpfrontIndexFixture
     // at every possible position: split into page2, then merge, then compare
     for (size_t i = 0; i < capacity; i++) {
       UpfrontIndex ui2((LocalDatabase *)m_db);
-      ui2.create(&data2[0], kMax, sizeof(data2));
+      ui2.create(&data2[0], sizeof(data2), kMax);
       ui1.split(&ui2, capacity, i);
       ui1.merge_from(&ui2, capacity - i, i);
 

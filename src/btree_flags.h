@@ -76,7 +76,8 @@ struct BtreeRecord
     // record size == 0; key->ptr == 0
     kBlobSizeEmpty        = 0x04,
 
-    // key has duplicates in an overflow area
+    // key has duplicates in an overflow area; this is the msb of 1 byte;
+    // the lower bits are the counter for the inline duplicate list
     kExtendedDuplicates   = 0x80
   };
 };
