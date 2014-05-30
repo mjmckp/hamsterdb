@@ -574,14 +574,40 @@ o Refactorings for the Default layout with the following goals:
         -> maybe start with PAX because they used to work...
         --> PAX works great, 10% faster than before
 
+Hamsterdb/recordCountTest
+Btree/binaryTypeTest
+BtreeKey/duplicateRecord
+BtreeKey/eraseDuplicateRecord
+BtreeKey/eraseAllDuplicateRecord
+Hamsterdb/cursorInsertAppendTest
+Cursor-longtxn/switchDirectionsMixedStartInTxnTest
+Approx/greaterThanTest
+Approx/greaterOrEqualTest
+
+    o also run recovery tests
+    o run some tests related to file sizes - is it a problem that the
+        nodes are no longer resized?
+        o stats->get_default_page_capacity should not wait till it has 5
+            values; just take the mean of what is there
+        o resize: should track different statistics for leaf and internal nodes!
+        o fix TODOs in btree_default.cpp - might need better resize()
+            implementation if there are too many splits
+
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
     o fix the remaining TODOs in btree_impl_default.h
-    o resize: should track different statistics for leaf and internal nodes!
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
         and that the order of the parameters is consistent
+        o make sure that there is only 1 offfset calculation per higher-level
+            function, and not something like i.e.
+                set_key_size(slot, size)
+                set_key_flags(slot, flags)
+            which performs two offset calculations; rewrite as
+                offset = get_offset(slot)
+                set_key_size_offset(offset, size)
+                set_key_flags_offset(offset, flags)
         o also review pax layout
     o the m_recalc_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not

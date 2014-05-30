@@ -1539,6 +1539,9 @@ struct HamsterdbFixture {
       key.data = (void *)&i;
       rec.size = sizeof(i);
       rec.data = (void *)&i;
+      printf("%d\n", i);
+      if (i == 3731)
+        printf("hit\n");
       REQUIRE(0 == ham_cursor_insert(cursor, &key, &rec, 0));
     }
 

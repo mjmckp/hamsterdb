@@ -268,6 +268,10 @@ class PodKeyList
     void check_integrity(ham_u32_t count) const {
     }
 
+    // Rearranges the list; not supported
+    void rearrange(ham_u32_t node_count) const {
+    }
+
   private:
     // The actual array of T's
     T *m_data;
@@ -468,6 +472,10 @@ class BinaryKeyList
     void check_integrity(ham_u32_t count) const {
     }
 
+    // Rearranges the list; not supported
+    void rearrange(ham_u32_t node_count) const {
+    }
+
   private:
     // The size of a single key
     size_t m_key_size;
@@ -500,8 +508,9 @@ class DefaultRecordList
     }
 
     // Opens an existing RecordList
-    void open(ham_u8_t *ptr, size_t capacity) {
-      m_data = (ham_u64_t *)ptr;
+    void open(ham_u8_t *data, size_t capacity) {
+      m_flags = data;
+      m_data = (ham_u64_t *)&data[capacity];
       m_capacity = capacity;
     }
 
@@ -737,6 +746,10 @@ class DefaultRecordList
     void check_integrity(ham_u32_t count) const {
     }
 
+    // Rearranges the list; not supported
+    void rearrange(ham_u32_t node_count) const {
+    }
+
   private:
     // Returns the size of an inline record
     ham_u32_t get_inline_record_size(ham_u32_t slot) const {
@@ -935,6 +948,10 @@ class InternalRecordList
     void check_integrity(ham_u32_t count) const {
     }
 
+    // Rearranges the list; not supported
+    void rearrange(ham_u32_t node_count) const {
+    }
+
   private:
     // The parent database of this btree
     LocalDatabase *m_db;
@@ -1104,6 +1121,10 @@ class InlineRecordList
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count) const {
+    }
+
+    // Rearranges the list; not supported
+    void rearrange(ham_u32_t node_count) const {
     }
 
   private:
