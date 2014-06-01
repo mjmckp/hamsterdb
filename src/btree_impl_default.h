@@ -1204,6 +1204,7 @@ class VariableLengthKeyList
       }
       else {
         m_index.allocate_space(node_count, slot, key->size + 1);
+        set_key_flags(slot, 0);
         set_key_data(slot, key->data, key->size);
       }
     }
@@ -1933,7 +1934,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
       ham_assert(duplicate_counter > 0);
       ham_assert(duplicate_index < duplicate_counter);
 #endif
-      return (m_data[offset + 1 + 9 * duplicate_index + 1]);
+      return (m_data[offset + 1 + 9 * duplicate_index]);
     }
 
     // Returns the size of a record
@@ -2116,7 +2117,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
                         required_size);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
         if (current_size > 0)
-          memmove(&m_data[chunk_offset], oldp, required_size);
+          memmove(&m_data[chunk_offset], oldp, current_size);
       }
 
       // adjust flags
@@ -2140,8 +2141,8 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
         duplicate_index = 0;
       }
       else if (flags & HAM_DUPLICATE_INSERT_BEFORE) {
-        memmove(&m_data[chunk_offset + 1 + 9 * duplicate_index],
-                    &m_data[chunk_offset + 1 + 9 * (duplicate_index + 1)],
+        memmove(&m_data[chunk_offset + 1 + 9 * (duplicate_index + 1)],
+                    &m_data[chunk_offset + 1 + 9 * duplicate_index],
                     (record_count - duplicate_index) * 9);
       }
       else // HAM_DUPLICATE_INSERT_LAST
@@ -2722,7 +2723,7 @@ class DefaultNodeImpl
 
     // Returns the capacity
     size_t get_capacity() const {
-      return (0);
+      return (m_capacity);
     }
 
     // Clears the page with zeroes and reinitializes it; only for testing

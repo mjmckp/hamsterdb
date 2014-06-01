@@ -1873,7 +1873,7 @@ struct HamsterdbFixture {
 
 #ifdef HAVE_GCC_ABI_DEMANGLE
     std::string s = ldb->get_btree_index()->test_get_classname();
-    REQUIRE(s == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::FixedKeyList<unsigned short, true>, hamsterdb::DefaultInlineRecordImpl<hamsterdb::FixedKeyList<unsigned short, true>, true> >, hamsterdb::CallbackCompare>");
+    REQUIRE(s == "hamsterdb::BtreeIndexTraitsImpl<hamsterdb::DefaultNodeImpl<hamsterdb::PaxLayout::BinaryKeyList, hamsterdb::DefLayout::DuplicateInlineRecordList>, hamsterdb::CallbackCompare>");
 #endif
 
     ham_parameter_t query[] = {

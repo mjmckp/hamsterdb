@@ -438,8 +438,6 @@ struct BtreeKeyFixture {
     checkDupe(0, 0, 0);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert tiny key, then a duplicate; delete both */
     prepareTiny("1234", 4);
@@ -447,8 +445,6 @@ struct BtreeKeyFixture {
     checkDupe(0, "1234", 4);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert small key, then a duplicate; delete both */
     prepareSmall("12345678");
@@ -456,8 +452,6 @@ struct BtreeKeyFixture {
     checkDupe(0, "12345678", 8);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert normal key, then a duplicate; delete both */
     prepareNormal("1234123456785678", 16);
@@ -465,8 +459,6 @@ struct BtreeKeyFixture {
     checkDupe(0, "1234123456785678", 16);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
   }
 
   void eraseAllDuplicateRecordTest() {
@@ -482,8 +474,6 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "abc4567812345678", 16);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert tiny key, then a duplicate; delete both */
     prepareTiny("1234", 4);
@@ -494,8 +484,6 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "1234", 4);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert small key, then a duplicate; delete both at once */
     prepareSmall("12345678");
@@ -507,8 +495,6 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "abc4567812345678", 16);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert normal key, then a duplicate; delete both at once */
     prepareNormal("1234123456785678", 16);
@@ -520,8 +506,6 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "1234123456785678", 16);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(0));
-    REQUIRE((ham_u64_t)0 == node->get_record_id(0));
   }
 };
 

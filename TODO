@@ -574,15 +574,18 @@ o Refactorings for the Default layout with the following goals:
         -> maybe start with PAX because they used to work...
         --> PAX works great, 10% faster than before
 
+
 Hamsterdb/recordCountTest
-Btree/binaryTypeTest
-BtreeKey/duplicateRecord
-BtreeKey/eraseDuplicateRecord
-BtreeKey/eraseAllDuplicateRecord
-Hamsterdb/cursorInsertAppendTest
-Cursor-longtxn/switchDirectionsMixedStartInTxnTest
 Approx/greaterThanTest
 Approx/greaterOrEqualTest
+BtreeDefault/fixedRecordsWithDuplicatesTest
+Cursor-longtxn/switchDirectionsMixedStartInTxnTest
+Env/multiDbInsertFindExtendedTest
+Env/multiDbInsertFindExtendedEraseTest
+Env/multiDbInsertCursorTest
+Env/multiDbInsertFindExtendedCloseReopenTest
+Env/eraseMultipleDatabasesReopenEnv
+Journal/recoverEraseTest
 
     o also run recovery tests
     o run some tests related to file sizes - is it a problem that the
