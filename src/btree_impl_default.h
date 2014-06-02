@@ -211,6 +211,12 @@ class DuplicateTable
       ham_u8_t record_flags = precord_flags ? *precord_flags : 0;
 
       if (m_inline_records) {
+        if (flags & HAM_PARTIAL) {
+          ham_trace(("flag HAM_PARTIAL is not allowed if record is "
+                     "stored inline"));
+          throw Exception(HAM_INV_PARAMETER);
+        }
+
         record->size = m_record_size;
         if (direct_access)
           record->data = p;
@@ -598,6 +604,10 @@ class UpfrontIndex
     // from that pointer
     void open(ham_u8_t *data) {
       m_data = data;
+      // the rearrange-counter is not persisted, but it's crucial. therefore
+      // pretend that the counter is very high; in worst case this will cause
+      // an invalid call to rearrange(), which is not a problem
+      m_rearrange_counter = INT_MAX;
     }
 
     // Returns the size of a single index entry
@@ -666,11 +676,11 @@ class UpfrontIndex
       ham_u8_t *p = &m_data[kPayloadOffset + slot_size * slot];
       if (total_count > 0 && slot < total_count) {
         // create a gap in the index
-        memmove(p + get_full_index_size(), p, slot_size * (total_count - slot));
+        memmove(p + slot_size, p, slot_size * (total_count - slot));
       }
 
       // now fill the gap
-      memset(p, 0, m_sizeof_offset + sizeof(ham_u16_t));
+      memset(p, 0, slot_size);
     }
 
     // Erases a slot at the position |slot|
@@ -923,6 +933,24 @@ class UpfrontIndex
       m_rearrange_counter = 0;
     }
 
+    // Clears a record; don't do anything here, because clear() is called
+    // on a record which does not have space assigned.
+    void clear(ham_u32_t slot) {
+      size_t slot_size = get_full_index_size();
+      ham_u8_t *p = &m_data[kPayloadOffset + slot_size * slot];
+      memset(p, 0, slot_size);
+    }
+
+    // Returns the offset of the unused space at the end of the page
+    ham_u32_t get_next_offset(ham_u32_t node_count) {
+      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
+      if (ret == (ham_u32_t)-1 && node_count > 0) {
+        ret = calc_next_offset(node_count);
+        set_next_offset(ret);
+      }
+      return (ret);
+    }
+
   private:
     friend class UpfrontIndexFixture;
 
@@ -962,16 +990,6 @@ class UpfrontIndex
     // Sets the number of freelist entries
     void set_freelist_count(size_t freelist_count) {
       *(ham_u32_t *)(m_data + 4) = ham_h2db32(freelist_count);
-    }
-
-    // Returns the offset of the unused space at the end of the page
-    ham_u32_t get_next_offset(ham_u32_t node_count) {
-      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
-      if (ret == (ham_u32_t)-1) {
-        ret = calc_next_offset(node_count);
-        set_next_offset(ret);
-      }
-      return (ret);
     }
 
     // Returns the offset of the unused space at the end of the page
@@ -1228,7 +1246,8 @@ class VariableLengthKeyList
     void copy_to(ham_u32_t sstart, size_t node_count,
                     VariableLengthKeyList &dest, size_t other_node_count,
                     ham_u32_t dstart) {
-      for (size_t i = 0; i < node_count - sstart; i++) {
+      size_t i = 0;
+      for (; i < node_count - sstart; i++) {
         size_t size = get_key_size(sstart + i);
         ham_u8_t flags = get_key_flags(sstart + i);
         const void *data = get_key_data(sstart + i);
@@ -1241,6 +1260,9 @@ class VariableLengthKeyList
       }
 
       m_index.invalidate_next_offset();
+#ifdef HAM_DEBUG
+      dest.m_index.check_integrity(other_node_count + i);
+#endif
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -1513,7 +1535,8 @@ class DuplicateRecordList
     void copy_to(ham_u32_t sstart, size_t node_count,
                     DuplicateRecordList &dest, size_t other_node_count,
                     ham_u32_t dstart) {
-      for (size_t i = 0; i < node_count - sstart; i++) {
+      size_t i = 0;
+      for (; i < node_count - sstart; i++) {
         size_t size = m_index.get_chunk_size(sstart + i);
 
         dest.m_index.insert_slot(dstart + i, other_node_count + i);
@@ -1529,6 +1552,9 @@ class DuplicateRecordList
       }
 
       m_index.invalidate_next_offset();
+#ifdef HAM_DEBUG
+      dest.m_index.check_integrity(other_node_count + i);
+#endif
     }
 
     // Rearranges the list
@@ -1629,6 +1655,12 @@ class DuplicateInlineRecordList : public DuplicateRecordList
         DuplicateTable *dt = get_duplicate_table(get_record_id(slot));
         dt->get_record(duplicate_index, arena, record, flags);
         return;
+      }
+
+      if (flags & HAM_PARTIAL) {
+        ham_trace(("flag HAM_PARTIAL is not allowed if record is "
+                   "stored inline"));
+        throw Exception(HAM_INV_PARAMETER);
       }
 
       ham_assert(duplicate_index < get_inline_record_count(slot));
@@ -1732,13 +1764,12 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
       // Allocate new space for the duplicate table, if required
       if (current_size < required_size) {
-        ham_u8_t *oldp = (ham_u8_t *)get_record_data(slot, 0);
+        ham_u8_t *oldp = &m_data[chunk_offset];
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
                         required_size);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
-        ham_u8_t *newp = (ham_u8_t *)get_record_data(slot, 0);
-        if (required_size > 0)
-          memmove(newp, oldp, required_size);
+        if (current_size > 0)
+          memmove(&m_data[chunk_offset], oldp, current_size);
       }
 
       // adjust flags
@@ -1977,6 +2008,13 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
 
       ham_u8_t *p = &m_data[offset + 1 + 9 * duplicate_index];
       ham_u8_t record_flags = *(p++);
+
+      if (record_flags && (flags & HAM_PARTIAL)) {
+        ham_trace(("flag HAM_PARTIAL is not allowed if record is "
+                   "stored inline"));
+        throw Exception(HAM_INV_PARAMETER);
+      }
+
       if (record_flags & BtreeRecord::kBlobSizeEmpty) {
         record->data = 0;
         record->size = 0;
@@ -2208,6 +2246,13 @@ write_record:
       if (count == 1 && duplicate_index == 0)
         all_duplicates = true;
 
+      // adjust next_offset, if necessary. Note that get_next_offset() is
+      // called with a node_count of zero, which is valid (it avoids a
+      // recalculation in case there is no next_offset)
+      if (m_index.get_next_offset(0) == m_index.get_chunk_offset(slot)
+                                            + m_index.get_chunk_size(slot))
+        m_index.invalidate_next_offset();
+
       // erase all duplicates?
       if (all_duplicates) {
         for (ham_u32_t i = 0; i < count; i++) {
@@ -2219,6 +2264,7 @@ write_record:
           }
         }
         set_inline_record_count(slot, 0);
+        m_index.set_chunk_size(slot, 0);
       }
       else {
         ham_u8_t *p = &m_data[offset + 1 + 9 * duplicate_index];
@@ -2256,6 +2302,7 @@ write_record:
     // Clears a record; don't do anything here, because clear() is called
     // on a record which does not have space assigned.
     void clear(ham_u32_t slot) {
+      m_index.clear(slot);
     }
 
     // Returns true if there's not enough space for another record
@@ -2433,6 +2480,7 @@ class DefaultNodeImpl
       }
 
       if (threshold == 0) {
+        *pcmp = cmp;
         if (precord_id)
           *precord_id = m_node->get_ptr_down();
         return (-1);
@@ -2485,17 +2533,26 @@ class DefaultNodeImpl
 
     // Returns a deep copy of the key
     void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) {
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       m_keys.get_key(slot, arena, dest);
     }
 
     // Returns the number of records of a key
     ham_u32_t get_record_count(ham_u32_t slot) {
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       return (m_records.get_record_count(slot));
     }
 
     // Returns the full record and stores it in |dest|
     void get_record(ham_u32_t slot, ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags, ham_u32_t duplicate_index) {
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       m_records.get_record(slot, duplicate_index, arena, record, flags);
     }
 
@@ -2536,6 +2593,9 @@ class DefaultNodeImpl
 
     // Returns the record size of a key or one of its duplicates
     ham_u64_t get_record_size(ham_u32_t slot, int duplicate_index) {
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       return (m_records.get_record_size(slot, duplicate_index));
     }
 
@@ -2572,6 +2632,9 @@ class DefaultNodeImpl
     // the next call of set_record().
     void insert(ham_u32_t slot, const ham_key_t *key) {
       ham_u32_t count = m_node->get_count();
+#ifdef HAM_DEBUG
+      check_index_integrity(count);
+#endif
 
       // make space for 1 additional element.
       // only store the key data; flags and record IDs are set by the caller
@@ -2592,6 +2655,9 @@ class DefaultNodeImpl
     bool requires_split(const ham_key_t *key) {
       ham_u32_t count = m_node->get_count();
 
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       // instead of implementing  complex resize logic: just store a hint
       // whether the capacity is enough or not. New pages can then use that
       // hint to improve their capacity.
@@ -2611,10 +2677,11 @@ class DefaultNodeImpl
     // Splits this node and moves some/half of the keys to |other|
     void split(DefaultNodeImpl *other, int pivot) {
       ham_u32_t count = m_node->get_count();
+      ham_u32_t other_count = other->m_node->get_count();
 
 #ifdef HAM_DEBUG
       check_index_integrity(count);
-      ham_assert(other->m_node->get_count() == 0);
+      ham_assert(other_count == 0);
 #endif
 
       // make sure that the other node has enough free space
@@ -2633,27 +2700,25 @@ class DefaultNodeImpl
       // afterwards immediately rearrange the indices, otherwise the next
       // insert() will not be able to reuse the new space
       if (m_node->is_leaf()) {
-        m_keys.copy_to(pivot, count, other->m_keys, 0, 0);
-        m_records.copy_to(pivot, count, other->m_records, 0, 0);
-
-        m_keys.rearrange(count - pivot);
-        m_records.rearrange(count - pivot);
-#ifdef HAM_DEBUG
-        check_index_integrity(count - pivot);
-        other->check_index_integrity(count - pivot);
-#endif
+        m_keys.copy_to(pivot, count, other->m_keys, other_count, 0);
+        m_records.copy_to(pivot, count, other->m_records, other_count,  0);
       }
       else {
-        m_keys.copy_to(pivot + 1, count, other->m_keys, 0, 0);
-        m_records.copy_to(pivot + 1, count, other->m_records, 0,  0);
+        m_keys.copy_to(pivot + 1, count, other->m_keys, other_count,  0);
+        m_records.copy_to(pivot + 1, count, other->m_records,
+                       other_count,  0);
+      }
 
-        m_keys.rearrange(count - pivot - 1);
-        m_records.rearrange(count - pivot - 1);
+      m_keys.rearrange(pivot);
+      m_records.rearrange(pivot);
+
 #ifdef HAM_DEBUG
-        check_index_integrity(count - pivot - 1);
+      check_index_integrity(pivot);
+      if (m_node->is_leaf())
+        other->check_index_integrity(count - pivot);
+      else
         other->check_index_integrity(count - pivot - 1);
 #endif
-      }
     }
 
     // Returns true if the node requires a merge or a shift
@@ -2678,12 +2743,18 @@ class DefaultNodeImpl
     // Returns a record id
     ham_u64_t get_record_id(ham_u32_t slot,
                     ham_u32_t duplicate_index = 0) const {
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
       return (m_records.get_record_id(slot, duplicate_index));
     }
 
     // Sets a record id; only for internal nodes!
     void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
       m_records.set_record_id(slot, ptr);
+#ifdef HAM_DEBUG
+      check_index_integrity(m_node->get_count());
+#endif
     }
 
     // Returns the key's flags
@@ -2778,11 +2849,9 @@ class DefaultNodeImpl
       }
       else {
         m_keys.open(m_node->get_data());
+        m_capacity = m_keys.get_capacity();
         size_t key_range_size = m_keys.get_full_range_size();
         m_records.open(m_node->get_data() + key_range_size, m_capacity);
-
-        // read the capacity from the KeyList, which persisted it
-        m_capacity = m_keys.get_capacity();
       }
     }
 

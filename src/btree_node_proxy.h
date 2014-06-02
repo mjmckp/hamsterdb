@@ -455,6 +455,8 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
       if (dest->flags & HAM_KEY_USER_ALLOC) {
         arena->assign(dest->data, dest->size);
         arena->disown();
+        // TODO raus? durch das disown wird eine persistente struktur
+        // dauerhaft verändert
       }
       m_impl.get_key(slot, arena, dest);
     }

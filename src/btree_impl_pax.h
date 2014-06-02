@@ -544,6 +544,11 @@ class DefaultRecordList
           record->data = 0;
           return;
         }
+        if (flags & HAM_PARTIAL) {
+          ham_trace(("flag HAM_PARTIAL is not allowed if record is "
+                     "stored inline"));
+          throw Exception(HAM_INV_PARAMETER);
+        }
         if (direct_access)
           record->data = (void *)get_record_data(slot);
         else {
@@ -1007,6 +1012,12 @@ class InlineRecordList
                     ByteArray *arena, ham_record_t *record,
                     ham_u32_t flags) const {
       bool direct_access = (flags & HAM_DIRECT_ACCESS) != 0;
+
+      if (flags & HAM_PARTIAL) {
+        ham_trace(("flag HAM_PARTIAL is not allowed if record is "
+                   "stored inline"));
+        throw Exception(HAM_INV_PARAMETER);
+      }
 
       // the record is stored inline
       record->size = m_record_size;

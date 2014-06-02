@@ -574,20 +574,24 @@ o Refactorings for the Default layout with the following goals:
         -> maybe start with PAX because they used to work...
         --> PAX works great, 10% faster than before
 
+    x fix the unittests
+    o run with valgrind
+=======================================
+    o run recovery tests
+with each open the nodes are initialized and they become smaller. the capacity
+shrinks and shrinks till it's down to 0.
 
-Hamsterdb/recordCountTest
-Approx/greaterThanTest
-Approx/greaterOrEqualTest
-BtreeDefault/fixedRecordsWithDuplicatesTest
-Cursor-longtxn/switchDirectionsMixedStartInTxnTest
-Env/multiDbInsertFindExtendedTest
-Env/multiDbInsertFindExtendedEraseTest
-Env/multiDbInsertCursorTest
-Env/multiDbInsertFindExtendedCloseReopenTest
-Env/eraseMultipleDatabasesReopenEnv
-Journal/recoverEraseTest
+rm recovery.db*
+./recovery insert 64 8 0 0 0 0
+./recovery recover 0
+./recovery insert 64 8 1 0 0 0
+./recovery recover 0
+./recovery insert 64 8 2 0 0 0
+gdb --args ./recovery recover 0
 
-    o also run recovery tests
+=======================================
+    o run monster tests
+
     o run some tests related to file sizes - is it a problem that the
         nodes are no longer resized?
         o stats->get_default_page_capacity should not wait till it has 5
@@ -595,10 +599,19 @@ Journal/recoverEraseTest
         o resize: should track different statistics for leaf and internal nodes!
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
+        o m_recalc_capacity is currently not required - remove it?
+
+    o btree_flags: kHasNoRecords still required?
+    o btree_flags: kInitialized still required?
+    o get rid of test_set_key() - it requires many unnecessary functions
+    o the m_recalc_counter could store the number of free bytes; then it's
+        easier to figure out whether a rearrange would make sense or not
+    x is RecordList::clear really required? - yes!
 
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
+    o fix TODOs in btree_node_proxy
     o fix the remaining TODOs in btree_impl_default.h
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
@@ -612,9 +625,6 @@ Journal/recoverEraseTest
                 set_key_size_offset(offset, size)
                 set_key_flags_offset(offset, flags)
         o also review pax layout
-    o the m_recalc_counter could store the number of free bytes; then it's
-        easier to figure out whether a rearrange would make sense or not
-    o is RecordList::clear really required?
 
     o there is lots of duplicate code in the PaxRecordLists; move to
         common base class
@@ -623,7 +633,6 @@ Journal/recoverEraseTest
         o or can we merge the two duplicate RecordLists? 
     
     o do we really need get_record_id/set_record_id? not convinced...
-    o get rid of test_set_key() - it requires many unnecessary functions
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist?
@@ -636,8 +645,6 @@ Journal/recoverEraseTest
         - btree_impl_distinct
         - btree_impl_duplicate
         - btree_impl_common
-    o btree_flags: kHasNoRecords still required?
-    o btree_flags: kInitialized still required?
 
     o make sure there are no memory leaks with duplicate tables + in-memory
         blobs
@@ -817,6 +824,7 @@ o adapt to the newest changes from 2.1.8
 
 . PRO: add avx support
 o PRO: add sse support for real64
+o PRO: add new compression library LZ4 (https://code.google.com/p/lz4/)
 
 o PRO: CRC32-checksums (as soon as the file format is updated)
     o SSE2 has support for a CRC32 checksum calculation, or find a good

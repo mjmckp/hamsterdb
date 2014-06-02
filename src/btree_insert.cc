@@ -403,7 +403,7 @@ class BtreeInsertAction
           }
           else {
             /*
-             * otherwise, if the new key is > then the slot key, move to
+             * otherwise, if the new key is > than the slot key: move to
              * the next slot
              */
             if (cmp > 0)
