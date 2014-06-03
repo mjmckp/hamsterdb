@@ -575,31 +575,19 @@ o Refactorings for the Default layout with the following goals:
         --> PAX works great, 10% faster than before
 
     x fix the unittests
-    o run with valgrind
-=======================================
-    o run recovery tests
-with each open the nodes are initialized and they become smaller. the capacity
-shrinks and shrinks till it's down to 0.
-
-rm recovery.db*
-./recovery insert 64 8 0 0 0 0
-./recovery recover 0
-./recovery insert 64 8 1 0 0 0
-./recovery recover 0
-./recovery insert 64 8 2 0 0 0
-gdb --args ./recovery recover 0
-
-=======================================
+    x run recovery tests
+    o run with valgrind (already done, has many issues)
     o run monster tests
 
     o run some tests related to file sizes - is it a problem that the
-        nodes are no longer resized?
-        o stats->get_default_page_capacity should not wait till it has 5
+        nodes are no longer resized? -> yes, a big one
+        x stats->get_default_page_capacity should not wait till it has 5
             values; just take the mean of what is there
         o resize: should track different statistics for leaf and internal nodes!
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
-        o m_recalc_capacity is currently not required - remove it?
+        o m_recalc_capacity is currently not required - remove it? no!
+        o implement a working resize algorithm
 
     o btree_flags: kHasNoRecords still required?
     o btree_flags: kInitialized still required?

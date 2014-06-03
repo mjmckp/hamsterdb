@@ -607,7 +607,7 @@ class UpfrontIndex
       // the rearrange-counter is not persisted, but it's crucial. therefore
       // pretend that the counter is very high; in worst case this will cause
       // an invalid call to rearrange(), which is not a problem
-      m_rearrange_counter = INT_MAX;
+      m_rearrange_counter = get_full_range_size();
     }
 
     // Returns the size of a single index entry
@@ -755,6 +755,8 @@ class UpfrontIndex
         return (offset);
       }
 
+      size_t slot_size = get_full_index_size();
+
       // then check the freelist
       ham_u32_t total_count = node_count + get_freelist_count();
       for (ham_u32_t i = node_count; i < total_count; i++) {
@@ -763,15 +765,15 @@ class UpfrontIndex
           set_chunk_size(slot, get_chunk_size(i));
           set_chunk_offset(slot, get_chunk_offset(i));
           // remove from the freelist
-          ham_u8_t *p = &m_data[kPayloadOffset + get_full_index_size() * slot];
-          memcpy(p, p + get_full_index_size(), total_count - i - 1);
+          ham_u8_t *p = &m_data[kPayloadOffset + slot_size * i];
+          memmove(p, p + slot_size, slot_size * (total_count - i - 1));
           set_freelist_count(get_freelist_count() - 1);
-          return (get_chunk_offset(slot));
+          return (get_chunk_offset(i));
         }
       }
 
       ham_assert(!"shouldn't be here");
-      return ((ham_u32_t)-1);
+      throw Exception(HAM_INTERNAL_ERROR);
     }
 
     // Returns true if |key| cannot be inserted because a split is required.
@@ -1174,6 +1176,7 @@ class VariableLengthKeyList
     // this KeyList implementation.
     void scan(ScanVisitor *visitor, ham_u32_t start, size_t node_count) {
       ham_assert(!"shouldn't be here");
+      throw Exception(HAM_INTERNAL_ERROR);
     }
 
     // Erases a slot
@@ -1194,7 +1197,7 @@ class VariableLengthKeyList
     int linear_search(ham_u32_t start, ham_u32_t count, ham_key_t *hkey,
                     Cmp &comparator, int *pcmp) {
       ham_assert(!"shouldn't be here");
-      return (0);
+      throw Exception(HAM_INTERNAL_ERROR);
     }
 
     // Erases the extended part of a key
@@ -1254,7 +1257,8 @@ class VariableLengthKeyList
 
         dest.m_index.insert_slot(dstart + i, other_node_count + i);
         // Add 1 byte for key flags
-        dest.m_index.allocate_space(other_node_count + i, dstart + i, size + 1);
+        dest.m_index.allocate_space(other_node_count + i + 1,
+                        dstart + i, size + 1);
         dest.set_key_flags(dstart + i, flags);
         dest.set_key_data(dstart + i, data, size);
       }
@@ -1536,12 +1540,14 @@ class DuplicateRecordList
                     DuplicateRecordList &dest, size_t other_node_count,
                     ham_u32_t dstart) {
       size_t i = 0;
+      ham_u32_t doffset;
+
       for (; i < node_count - sstart; i++) {
         size_t size = m_index.get_chunk_size(sstart + i);
 
         dest.m_index.insert_slot(dstart + i, other_node_count + i);
         // destination offset
-        ham_u32_t doffset = dest.m_index.allocate_space(other_node_count + i,
+        doffset = dest.m_index.allocate_space(other_node_count + i + 1,
                 dstart + i, size);
         doffset = dest.m_index.get_absolute_offset(doffset);
         // source offset
@@ -2665,7 +2671,7 @@ class DefaultNodeImpl
             ||  m_records.requires_split(count)) {
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
         if (count >= m_capacity - 1)
-          bi->get_statistics()->set_page_capacity(m_capacity + 2);
+          bi->get_statistics()->set_page_capacity(m_capacity * 1.5);
         else
           bi->get_statistics()->set_page_capacity(count);
         return (true);
@@ -2730,6 +2736,9 @@ class DefaultNodeImpl
     void merge_from(DefaultNodeImpl *other) {
       ham_u32_t count = m_node->get_count();
       ham_u32_t other_count = other->m_node->get_count();
+
+      m_keys.rearrange(count);
+      m_records.rearrange(count);
 
       // shift items from the sibling to this page
       other->m_keys.copy_to(0, other_count, m_keys, count, count);
@@ -2830,7 +2839,10 @@ class DefaultNodeImpl
                         : db->get_btree_index()->get_statistics()->get_default_page_capacity();
 
         // no data so far? then come up with a good default
-        if (m_capacity == 0) {
+        //
+        // TODO make sure there's a minimum capacity available; remove
+        // this as soon as we can resize
+        if (m_capacity <= 10) {
           m_capacity = usable_page_size
                             / (m_keys.get_full_key_size()
                                 + m_records.get_full_record_size());
