@@ -168,9 +168,10 @@ class PodKeyList
     }
 
     // Copies |count| key from this[sstart] to dest[dstart]
-    void copy_to(ham_u32_t sstart, size_t count, PodKeyList<T> &dest,
+    void copy_to(ham_u32_t sstart, size_t node_count, PodKeyList<T> &dest,
                     size_t other_count, ham_u32_t dstart) {
-      memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(T) * count);
+      memcpy(&dest.m_data[dstart], &m_data[sstart],
+                      sizeof(T) * (node_count - sstart));
     }
 
     // Returns the size of a single key
@@ -376,10 +377,10 @@ class BinaryKeyList
     }
 
     // Copies |count| key from this[sstart] to dest[dstart]
-    void copy_to(ham_u32_t sstart, size_t count, BinaryKeyList &dest,
+    void copy_to(ham_u32_t sstart, size_t node_count, BinaryKeyList &dest,
                     size_t other_count, ham_u32_t dstart) {
       memcpy(&dest.m_data[dstart * m_key_size], &m_data[sstart * m_key_size],
-                      m_key_size * count);
+                      m_key_size * (node_count - sstart));
     }
 
     // Returns the key size
@@ -656,10 +657,11 @@ class DefaultRecordList
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
-    void copy_to(ham_u32_t sstart, size_t count, DefaultRecordList &dest,
+    void copy_to(ham_u32_t sstart, size_t node_count, DefaultRecordList &dest,
                     size_t other_count, ham_u32_t dstart) {
-      memcpy(&dest.m_flags[dstart], &m_flags[sstart], count);
-      memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(ham_u64_t) * count);
+      memcpy(&dest.m_flags[dstart], &m_flags[sstart], (node_count - sstart));
+      memcpy(&dest.m_data[dstart], &m_data[sstart],
+                      sizeof(ham_u64_t) * (node_count - sstart));
     }
 
     // Returns the record counter of a key
@@ -889,9 +891,10 @@ class InternalRecordList
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
-    void copy_to(ham_u32_t sstart, size_t count, InternalRecordList &dest,
+    void copy_to(ham_u32_t sstart, size_t node_count, InternalRecordList &dest,
                     size_t other_count, ham_u32_t dstart) {
-      memcpy(&dest.m_data[dstart], &m_data[sstart], sizeof(ham_u64_t) * count);
+      memcpy(&dest.m_data[dstart], &m_data[sstart],
+                      sizeof(ham_u64_t) * (node_count - sstart));
     }
 
     // Returns the record counter of a key
@@ -1062,9 +1065,10 @@ class InlineRecordList
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
-    void copy_to(ham_u32_t sstart, size_t count, InlineRecordList &dest,
+    void copy_to(ham_u32_t sstart, size_t node_count, InlineRecordList &dest,
                     size_t other_count, ham_u32_t dstart) {
-      memcpy(&dest.m_data[dstart], &m_data[sstart], m_record_size * count);
+      memcpy(&dest.m_data[dstart], &m_data[sstart],
+                      m_record_size * (node_count - sstart));
     }
 
     // Returns the record counter of a key
@@ -1408,16 +1412,12 @@ class PaxNodeImpl
       // parent node. the pivot element is skipped.
       //
       if (m_node->is_leaf()) {
-        m_keys.copy_to(pivot, count - pivot, other->m_keys,
-                        other_count, 0);
-        m_records.copy_to(pivot, count - pivot, other->m_records,
-                       other_count,  0);
+        m_keys.copy_to(pivot, count, other->m_keys, other_count, 0);
+        m_records.copy_to(pivot, count, other->m_records, other_count, 0);
       }
       else {
-        m_keys.copy_to(pivot + 1, count - pivot - 1, other->m_keys,
-                       other_count,  0);
-        m_records.copy_to(pivot + 1, count - pivot - 1, other->m_records,
-                       other_count,  0);
+        m_keys.copy_to(pivot + 1, count, other->m_keys, other_count, 0);
+        m_records.copy_to(pivot + 1, count, other->m_records, other_count, 0);
       }
     }
 

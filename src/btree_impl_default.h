@@ -135,6 +135,13 @@ class DuplicateTable
         m_inline_records(inline_records), m_table_id(0) {
     }
 
+    // Destructor; deletes all blobs if running in-memory
+    ~DuplicateTable() {
+      if (m_db->get_rt_flags() & HAM_IN_MEMORY) {
+        erase_record(0, true);
+      }
+    }
+
     // Allocates and fills the table; returns the new table id.
     // Can allocate empty tables (required for testing purposes).
     ham_u64_t create(const ham_u8_t *data, size_t record_count) {
@@ -661,9 +668,7 @@ class UpfrontIndex
     // Returns true if this index has at least one free slot available.
     // |node_count| is the number of used slots (this is managed by the caller)
     bool can_insert_slot(size_t node_count) const {
-      if (node_count < get_capacity())
-        return (true);
-      return (get_freelist_count() > 0);
+      return (node_count + get_freelist_count() < get_capacity());
     }
 
     // Inserts a slot at the position |slot|. |node_count| is the number of
@@ -704,13 +709,13 @@ class UpfrontIndex
       size_t chunk_offset = get_chunk_offset(slot);
       size_t chunk_size = get_chunk_size(slot);
 
-      // otherwise copy the deleted chunk to the freelist
-      set_chunk_offset(total_count, chunk_offset);
-      set_chunk_size(total_count, chunk_size);
-
-      // and shift all items to the left
+      // shift all items to the left
       ham_u8_t *p = &m_data[kPayloadOffset + slot_size * slot];
-      memmove(p, p + get_full_index_size(), slot_size * (total_count - slot));
+      memmove(p, p + slot_size, slot_size * (total_count - slot));
+
+      // then copy the deleted chunk to the freelist
+      set_chunk_offset(total_count - 1, chunk_offset);
+      set_chunk_size(total_count - 1, chunk_size);
     }
 
     // Returns true if this page has enough space for at least |num_bytes|
@@ -789,6 +794,14 @@ class UpfrontIndex
       typedef std::pair<ham_u32_t, ham_u32_t> Range;
       typedef std::vector<Range> RangeVec;
       ham_u32_t total_count = node_count + get_freelist_count();
+
+      if (total_count > get_capacity()) {
+        ham_trace(("integrity violated: total count %u (%u+%u) > capacity %u",
+                    total_count, node_count, get_freelist_count(),
+                    get_capacity()));
+        throw Exception(HAM_INTEGRITY_VIOLATED);
+      }
+
       RangeVec ranges;
       ranges.reserve(total_count);
       ham_u32_t next_offset = 0;
@@ -2625,6 +2638,8 @@ class DefaultNodeImpl
     // Erases a key from the index. Does NOT erase the record(s)!
     void erase(ham_u32_t slot) {
       ham_u32_t count = m_node->get_count();
+      // erase the extended key
+      erase_key(slot);
 
       m_keys.shrink_space(slot, count);
       m_records.shrink_space(slot, count);

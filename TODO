@@ -576,18 +576,29 @@ o Refactorings for the Default layout with the following goals:
 
     x fix the unittests
     x run recovery tests
-    o run with valgrind (already done, has many issues)
+    x run with valgrind (already done, has many issues)
     o run monster tests
 
     o run some tests related to file sizes - is it a problem that the
         nodes are no longer resized? -> yes, a big one
         x stats->get_default_page_capacity should not wait till it has 5
             values; just take the mean of what is there
+        o implement resize algorithm: instead of splitting, perform a
+            recalculation (if possible)
+            x if key and record are both fixed (no duplicates) then
+                abort (should never happen b/c this is handled
+                by the pax layout)
+            o if key is indexed and record is fixed: we can only decrease
+                capacity of the record, and increase capacity (and data
+                size) of the keys
+            o ... or vice versa
+            o if keys are variable and duplicates are enabled then we can resize
+                freely (if there is enough space)
+            o this needs many unittests
         o resize: should track different statistics for leaf and internal nodes!
+        o use m_recalc_capacity (currently not used) - or remove it?
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
-        o m_recalc_capacity is currently not required - remove it? no!
-        o implement a working resize algorithm
 
     o btree_flags: kHasNoRecords still required?
     o btree_flags: kInitialized still required?
@@ -634,8 +645,6 @@ o Refactorings for the Default layout with the following goals:
         - btree_impl_duplicate
         - btree_impl_common
 
-    o make sure there are no memory leaks with duplicate tables + in-memory
-        blobs
     o collect test cases and systematically test for all possible layouts
         o insert/erase/find
         o insert/erase/find with duplicates
@@ -658,20 +667,15 @@ o Refactorings for the Default layout with the following goals:
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 
-o default layout: the lookup operations are relatively slow compared to PAX;
-    can we somehow improve this?
-    o maybe the work above is already enough?
-    o run profiling on a read-only workload, w/o records
-
 o the steps above will create an incompatible file format
     o increment file version
-    o collect other file format updates
-        o PageManager state: also store m_last_blob_page_id persistently
+    o reserve space for other file format updates
+        o PageManager state needs to persist m_last_blob_page_id
         o EnvHeader is completely full; add at least 8 bytes for
                 flags + reserved
         o reserve CRC32 for each page
-        o PAX Layout: can compress the flags for the DefaultRecordList
-        o Default Layout: can compress the flags for the Duplicate*RecordList
+        . PAX Layout: can compress the flags for the DefaultRecordList
+        . Default Layout: can compress the flags for the Duplicate*RecordList
 
 o remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
