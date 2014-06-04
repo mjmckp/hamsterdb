@@ -603,18 +603,20 @@ o Refactorings for the Default layout with the following goals:
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
 
-    o btree_flags: kHasNoRecords still required?
-    o btree_flags: kInitialized still required?
-    o do we need KeyList::get_capacity() and RecordList::get_capacity()?
-    o get rid of test_set_key() - it requires many unnecessary functions
+    x btree_flags: kHasNoRecords still required? - no
+    x btree_flags: kInitialized still required? - no
+    x get rid of test_set_key() - it requires many unnecessary functions
+    x do we need KeyList::get_capacity()? - yes
+    x get rid of test_clear_page()
+    x is RecordList::clear really required? - yes!
+    x fix TODOs in btree_node_proxy
+
     o the m_recalc_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not
-    x is RecordList::clear really required? - yes!
-
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
-    o fix TODOs in btree_node_proxy
+
     o fix the remaining TODOs in btree_impl_default.h
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
@@ -645,9 +647,9 @@ o Refactorings for the Default layout with the following goals:
         maybe be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
 
     o adjust file names
-        - btree_impl_distinct
-        - btree_impl_duplicate
-        - btree_impl_common
+        - btree_layout_distinct
+        - btree_layout_duplicate
+        - btree_layout_common
 
     o collect test cases and systematically test for all possible layouts
         o insert/erase/find
@@ -681,7 +683,10 @@ o the steps above will create an incompatible file format
         . PAX Layout: can compress the flags for the DefaultRecordList
         . Default Layout: can compress the flags for the Duplicate*RecordList
 
-o remove support for big endian. better now than later, and this will get
+o ham/types.h: do not include winsock2.h because it can conflict with
+    winsock.h in the user's application
+
+. remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
     o also from documentation, webpage
     o add documentation that database is host-endian
@@ -689,7 +694,7 @@ o remove support for big endian. better now than later, and this will get
 . release-v2.pl: valgrind takes sooo long. should we use clang's
     AddressSanitizer instead?
 
-o can we add a generic macro like this:
+. can we add a generic macro like this:
     #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
     which can be used as an initializer:
     ham_key_t key = ham_make_key("hello", 5);
@@ -759,6 +764,19 @@ o collect/publish benchmark against leveldb (with and without SSD)
     o bin16, default records, linear read (w/ compression)
     o uint64, calculate sum()
     o bin16, use count_if() of all keys with checksum % 10 == 0
+
+. python wrapper: should be part of the sources; build for linux
+    and for windows
+    o extend configure scripts
+    o stage 1: 
+        Environment: create, open, close, rename_db, erase_db, flush
+        Database: create, open, close, insert, find, erase
+    o Stage 2:
+        Transaction: begin, abort, commit
+    o Stage 3:
+        Cursor: begin, insert, find, erase, move, close
+    o cover with unittests
+    o need win32 build environment
 
 o documentation TODOs for 2.1.8
     o hola: add samples and documentation

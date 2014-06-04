@@ -411,14 +411,16 @@ class DuplicateTable
       }
 
       ham_assert(count > 0 && duplicate_index < count);
+
+      ham_u8_t *record_flags;
+      ham_u8_t *lhs = get_record_data(duplicate_index, &record_flags);
+      if (record_flags != 0 && *record_flags == 0 && !m_inline_records) {
+        m_db->get_local_env()->get_blob_manager()->erase(m_db,
+                          *(ham_u64_t *)lhs);
+        *(ham_u64_t *)lhs = 0;
+      }
+
       if (duplicate_index < count - 1) {
-        ham_u8_t *record_flags;
-        ham_u8_t *lhs = get_record_data(duplicate_index, &record_flags);
-        if (record_flags != 0 && *record_flags == 0 && !m_inline_records) {
-          m_db->get_local_env()->get_blob_manager()->erase(m_db,
-                            *(ham_u64_t *)lhs);
-          *(ham_u64_t *)lhs = 0;
-        }
         lhs = get_raw_record_data(duplicate_index);
         ham_u8_t *rhs = lhs + get_record_width();
         memmove(lhs, rhs, get_record_width() * (count - duplicate_index - 1));
@@ -2419,12 +2421,6 @@ class DefaultNodeImpl
                   m_page->get_address(), i));
           throw Exception(HAM_INTEGRITY_VIOLATED);
         }
-
-        if (get_key_flags(i) & BtreeKey::kInitialized) {
-          ham_log(("integrity check failed in page 0x%llx: item #%u"
-                  "is initialized (w/o record)", m_page->get_address(), i));
-          throw Exception(HAM_INTEGRITY_VIOLATED);
-        }
       }
 
       check_index_integrity(count);
@@ -2598,17 +2594,6 @@ class DefaultNodeImpl
                     | HAM_DUPLICATE_INSERT_FIRST
                     | HAM_DUPLICATE_INSERT_LAST)) == 0)
         flags |= HAM_OVERWRITE;
-
-      // record does not yet exist - simply overwrite the first record
-      // of this key
-      // TODO can we get rid of this?
-      if (get_key_flags(slot) & BtreeKey::kInitialized) {
-        flags |= HAM_OVERWRITE;
-        duplicate_index = 0;
-        // also remove the kInitialized flag
-        set_key_flags(slot, get_key_flags(slot) & (~BtreeKey::kInitialized));
-        // fall through into the next branch
-      }
 
       m_records.set_record(slot, duplicate_index, record, flags,
               new_duplicate_index);
@@ -2793,11 +2778,6 @@ class DefaultNodeImpl
       return (m_keys.get_key_flags(slot));
     }
 
-    // Sets the flags of a key
-    void set_key_flags(ham_u32_t slot, ham_u32_t flags) {
-      m_keys.set_key_flags(slot, flags);
-    }
-
     // Returns the key size as specified by the user
     size_t get_key_size(ham_u32_t slot) const {
       return (m_keys.get_key_size(slot));
@@ -2813,11 +2793,6 @@ class DefaultNodeImpl
       return (m_keys.get_key_data(slot));
     }
 
-    // Sets the inline key data
-    void set_key_data(ham_u32_t slot, const void *ptr, ham_u32_t len) {
-      m_keys.set_key_data(slot, ptr, len);
-    }
-
     // Returns the flags of a record; defined in btree_flags.h
     ham_u8_t get_record_flags(ham_u32_t slot, ham_u32_t duplicate_index = 0) {
       return (m_records.get_record_flags(slot, duplicate_index));
@@ -2826,21 +2801,6 @@ class DefaultNodeImpl
     // Returns the capacity
     size_t get_capacity() const {
       return (m_capacity);
-    }
-
-    // Clears the page with zeroes and reinitializes it; only for testing
-    void test_clear_page() {
-      memset(m_page->get_payload(), 0,
-                    m_page->get_db()->get_local_env()->get_usable_page_size());
-      initialize();
-    }
-
-    // Sets a key; only for testing
-    void test_set_key(ham_u32_t slot, const char *data,
-                    size_t data_size, ham_u32_t flags, ham_u64_t record_id) {
-      set_record_id(slot, record_id);
-      set_key_flags(slot, flags);
-      set_key_data(slot, data, (ham_u32_t)data_size);
     }
 
   private:

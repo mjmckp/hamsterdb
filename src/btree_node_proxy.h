@@ -229,13 +229,6 @@ class BtreeNodeProxy
     // Returns the flags of the key at the given |slot|. Only for testing!
     virtual ham_u32_t test_get_flags(ham_u32_t slot) = 0;
 
-    // Sets a key. Only for testing
-    virtual void test_set_key(ham_u32_t slot, const char *data,
-                    size_t data_size, ham_u32_t flags, ham_u64_t record_id) = 0;
-
-    // Clears the page with zeroes and reinitializes it. Only for testing!
-    virtual void test_clear_page() = 0;
-
     // Returns the class name. Only for testing! Uses the functions exported
     // by abi.h, which are only available on assorted platforms. Other
     // platforms will return empty strings.
@@ -452,12 +445,14 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
     // and respects HAM_KEY_USER_ALLOC in dest->flags. Record number keys
     // are endian-translated.
     virtual void get_key(ham_u32_t slot, ByteArray *arena, ham_key_t *dest) {
+#if 0
       if (dest->flags & HAM_KEY_USER_ALLOC) {
         arena->assign(dest->data, dest->size);
         arena->disown();
         // TODO raus? durch das disown wird eine persistente struktur
         // dauerhaft verändert
       }
+#endif
       m_impl.get_key(slot, arena, dest);
     }
 
@@ -629,17 +624,6 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
     // Returns the flags of the key at the given |slot|; only for testing!
     virtual ham_u32_t test_get_flags(ham_u32_t slot) {
       return (m_impl.get_key_flags(slot) | m_impl.get_record_flags(slot));
-    }
-
-    // Sets a key; only for testing
-    virtual void test_set_key(ham_u32_t slot, const char *data,
-                    size_t data_size, ham_u32_t flags, ham_u64_t record_id) {
-      m_impl.test_set_key(slot, data, data_size, flags, record_id);
-    }
-
-    // Clears the page with zeroes and reinitializes it; only for testing
-    virtual void test_clear_page() {
-      m_impl.test_clear_page();
     }
 
     // Returns the class name. Only for testing! Uses the functions exported

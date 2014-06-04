@@ -30,13 +30,6 @@ struct BtreeKey
     // key is extended with overflow area
     kExtendedKey          = 0x01,
 
-    // key is initialized and empty (with one record)
-    kInitialized          = 0x02,
-
-    // this key has no records attached (this flag is used if the key does
-    // not have a separate "record counter" field
-    kHasNoRecords         = 0x04,
-
     // PRO: key is compressed; the original size is stored in the payload
     kCompressed           = 0x08
   };

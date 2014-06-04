@@ -132,9 +132,7 @@ BtreeIndex::find_child(Page *page, ham_key_t *key, int *idxptr)
 #ifdef HAM_DEBUG
   if (slot >= 0) {
     ham_u32_t flags = node->test_get_flags(slot);
-    flags &= ~(BtreeKey::kInitialized
-                    | BtreeKey::kExtendedKey
-                    | BtreeKey::kCompressed);
+    flags &= ~(BtreeKey::kExtendedKey | BtreeKey::kCompressed);
     ham_assert(flags == 0);
   }
 #endif

@@ -1438,19 +1438,6 @@ class PaxNodeImpl
       other->m_records.copy_to(0, other_count, m_records, count, count);
     }
 
-    // Clears the page with zeroes and reinitializes it
-    void test_clear_page() {
-      // this is not yet in use
-      ham_assert(!"shouldn't be here");
-    }
-
-    // Sets a key; only for testing
-    void test_set_key(ham_u32_t slot, const char *data,
-                    size_t data_size, ham_u32_t flags, ham_u64_t record_id) {
-      set_record_id(slot, record_id);
-      m_keys.set_key_data(slot, data, (ham_u32_t)data_size);
-    }
-
   private:
     // The page we're operating on
     Page *m_page;

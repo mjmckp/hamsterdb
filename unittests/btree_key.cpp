@@ -28,6 +28,7 @@
 #include "../src/btree_impl_default.h"
 #include "../src/util.h"
 #include "../src/page.h"
+#include "../src/page_manager.h"
 #include "../src/env_local.h"
 #include "../src/btree_node.h"
 
@@ -50,22 +51,16 @@ struct BtreeKeyFixture {
 
     m_dbp = (LocalDatabase *)m_db;
 
-    m_page = new Page((LocalEnvironment *)m_env);
-    m_page->set_db(m_dbp);
-    m_page->allocate(Page::kTypeBindex, m_dbp->get_local_env()->get_page_size());
+    m_page = m_dbp->get_local_env()->get_page_manager()->alloc_page(m_dbp,
+                    Page::kTypeBindex,
+                    PageManager::kClearWithZero);
 
     // this is a leaf page! internal pages cause different behavior... 
     PBtreeNode *node = PBtreeNode::from_page(m_page);
     node->set_flags(PBtreeNode::kLeafNode);
-
-    // make sure that the node is properly initialized
-    BtreeNodeProxy *proxy = m_dbp->get_btree_index()->get_node_from_page(m_page);
-    proxy->test_clear_page();
   }
 
   ~BtreeKeyFixture() {
-    if (m_page)
-      delete m_page;
     if (m_env)
 	  REQUIRE(0 == ham_env_close(m_env, HAM_AUTO_CLEANUP));
   }
@@ -76,10 +71,8 @@ struct BtreeKeyFixture {
     ham_key_t key = {0};
     ham_record_t rec = {0};
 
-    if (!flags) {
-      node->test_clear_page();
+    if (!flags)
       node->insert(slot, &key);
-    }
 
     node->set_record(slot, &rec, 0, flags, 0);
     if (!(flags & HAM_DUPLICATE))
@@ -106,10 +99,8 @@ struct BtreeKeyFixture {
     int slot = 0;
 
     BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
-    if (!flags) {
-      node->test_clear_page();
+    if (!flags)
       node->insert(slot, &key);
-    }
 
     memset(&rec, 0, sizeof(rec));
     memset(&rec2, 0, sizeof(rec2));
@@ -148,10 +139,8 @@ struct BtreeKeyFixture {
     ham_record_t rec, rec2;
     ham_key_t key = {0};
 
-    if (!flags) {
-      node->test_clear_page();
+    if (!flags)
       node->insert(slot, &key);
-    }
 
     memset(&rec, 0, sizeof(rec));
     memset(&rec2, 0, sizeof(rec2));
@@ -193,10 +182,8 @@ struct BtreeKeyFixture {
     ham_record_t rec, rec2;
     ham_key_t key = {0};
 
-    if (!flags) {
-      node->test_clear_page();
+    if (!flags)
       node->insert(slot, &key);
-    }
 
     memset(&rec, 0, sizeof(rec));
     memset(&rec2, 0, sizeof(rec2));
@@ -407,25 +394,21 @@ struct BtreeKeyFixture {
     /* insert empty key, then delete it */
     prepareEmpty();
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(BtreeKey::kHasNoRecords));
     REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert tiny key, then delete it */
     prepareTiny("1234", 4);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(BtreeKey::kHasNoRecords));
     REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert small key, then delete it */
     prepareSmall("12345678");
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(BtreeKey::kHasNoRecords));
     REQUIRE((ham_u64_t)0 == node->get_record_id(0));
 
     /* insert normal key, then delete it */
     prepareNormal("1234123456785678", 16);
     node->erase_record(0, 0, false, 0);
-    REQUIRE((ham_u8_t)0 == node->test_get_flags(BtreeKey::kHasNoRecords));
     REQUIRE((ham_u64_t)0 == node->get_record_id(0));
   }
 
