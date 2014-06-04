@@ -665,17 +665,10 @@ struct DuplicateTableFixture
                   const ham_u8_t *record_data, const size_t *record_sizes,
                   size_t num_records) {
     DuplicateTable dt((LocalDatabase *)m_db, inline_records, fixed_record_size);
-
     ham_u64_t table_id = dt.create(record_data, num_records);
     REQUIRE(table_id != 0);
     REQUIRE(dt.get_record_count() == num_records);
     REQUIRE(dt.get_record_capacity() == num_records * 2);
-
-    DuplicateTable dt2((LocalDatabase *)m_db, inline_records,
-                    fixed_record_size);
-    dt2.open(table_id);
-    REQUIRE(dt2.get_record_count() == num_records);
-    REQUIRE(dt2.get_record_capacity() == num_records * 2);
 
     ByteArray arena(fixed_record_size != HAM_RECORD_SIZE_UNLIMITED
                         ? fixed_record_size
@@ -685,7 +678,7 @@ struct DuplicateTableFixture
 
     const ham_u8_t *p = record_data;
     for (size_t i = 0; i < num_records; i++) {
-      dt2.get_record(i, &arena, &record, 0);
+      dt.get_record(i, &arena, &record, 0);
       REQUIRE(record.size == record_sizes[i]);
 
       // this test does not compare record contents if they're not
@@ -1148,11 +1141,8 @@ TEST_CASE("BtreeDefault/DuplicateTable/createReopenTest", "")
       f.createReopenTest(false, HAM_RECORD_SIZE_UNLIMITED,
                       &default_data_16[0], record_sizes_16, num_records);
 
-      // clean up allocated blobs to avoid leaks
-      for (size_t i = 0; i < num_records; i++) {
-        ham_u64_t blob_id = *(ham_u64_t *)&default_data_16[i * 9 + 1];
-        env->get_blob_manager()->erase(db, blob_id, 0);
-      }
+      // no need to clean up allocated blobs; they will be erased when
+      // the DuplicateTable goes out of scope
     }
 
     {
@@ -1173,11 +1163,8 @@ TEST_CASE("BtreeDefault/DuplicateTable/createReopenTest", "")
       f.createReopenTest(false, 16,
                       &default_data_16[0], record_sizes_16, num_records);
 
-      // clean up allocated blobs to avoid leaks
-      for (size_t i = 0; i < num_records; i++) {
-        ham_u64_t blob_id = *(ham_u64_t *)&default_data_16[i * 9 + 1];
-        env->get_blob_manager()->erase(db, blob_id, 0);
-      }
+      // no need to clean up allocated blobs; they will be erased when
+      // the DuplicateTable goes out of scope
     }
   }
 }
@@ -1569,7 +1556,7 @@ struct UpfrontIndexFixture
 
     UpfrontIndex ui2((LocalDatabase *)m_db);
     REQUIRE(ui2.get_full_index_size() == 4);
-    ui2.open(&data[0]);
+    ui2.open(&data[0], 300);
     REQUIRE(ui2.get_freelist_count() == 0);
     REQUIRE(ui2.get_capacity() == 300);
     REQUIRE(ui2.get_next_offset(0) == 0);

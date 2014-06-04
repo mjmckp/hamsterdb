@@ -102,8 +102,9 @@ class PodKeyList
     }
 
     // Opens an existing PodKeyList starting at |ptr|
-    void open(ham_u8_t *ptr) {
-      m_data = (T *)ptr;
+    void open(ham_u8_t *data, size_t capacity) {
+      m_capacity = capacity;
+      m_data = (T *)data;
     }
 
     // Returns the capacity of the range
@@ -309,9 +310,10 @@ class BinaryKeyList
       m_capacity = capacity;
     }
 
-    // Opens an existing PodKeyList starting at |ptr|
-    void open(ham_u8_t *ptr) {
-      m_data = ptr;
+    // Opens an existing KeyList starting at |ptr|
+    void open(ham_u8_t *data, size_t capacity) {
+      m_capacity = capacity;
+      m_data = data;
     }
 
     // Returns the actual key size including overhead
@@ -1182,13 +1184,13 @@ class PaxNodeImpl
       ham_u8_t *p = m_node->get_data();
       if (m_node->get_count() == 0) {
         m_keys.create(&p[0], m_capacity * m_keys.get_full_key_size(),
-                m_capacity);
+                        m_capacity);
         m_records.create(&p[m_capacity * get_key_size(0)],
                         m_capacity * m_records.get_full_record_size(),
                         m_capacity);
       }
       else {
-        m_keys.open(&p[0]);
+        m_keys.open(&p[0], m_capacity);
         m_records.open(&p[m_capacity * get_key_size(0)], m_capacity);
       }
     }

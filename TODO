@@ -577,7 +577,8 @@ o Refactorings for the Default layout with the following goals:
     x fix the unittests
     x run recovery tests
     x run with valgrind (already done, has many issues)
-    o run monster tests
+    x node needs to store its capacity (in the node layout, not in
+        the KeyList or RecordList)
 
     o run some tests related to file sizes - is it a problem that the
         nodes are no longer resized? -> yes, a big one
@@ -595,13 +596,16 @@ o Refactorings for the Default layout with the following goals:
             o if keys are variable and duplicates are enabled then we can resize
                 freely (if there is enough space)
             o this needs many unittests
-        o resize: should track different statistics for leaf and internal nodes!
+        o capacity: should track different stats for leaf and internal nodes!
+            (currently the stats are not used)
         o use m_recalc_capacity (currently not used) - or remove it?
+            not sure if it's required
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
 
     o btree_flags: kHasNoRecords still required?
     o btree_flags: kInitialized still required?
+    o do we need KeyList::get_capacity() and RecordList::get_capacity()?
     o get rid of test_set_key() - it requires many unnecessary functions
     o the m_recalc_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not
@@ -682,6 +686,9 @@ o remove support for big endian. better now than later, and this will get
     o also from documentation, webpage
     o add documentation that database is host-endian
 
+. release-v2.pl: valgrind takes sooo long. should we use clang's
+    AddressSanitizer instead?
+
 o can we add a generic macro like this:
     #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
     which can be used as an initializer:
@@ -759,6 +766,11 @@ o documentation TODOs for 2.1.8
         o tutorial
     o FAQ: Why is the library size so big?
 
+o QuickCheck: create a new property for testing duplicates; the key is always
+    the same. The number of duplicate keys is tracked and periodically
+    checked with the API. A cursor can be used to remove a specific
+    duplicate, or to fetch a specific duplicate.
+
 . hola - next steps
     o support java api
     o support .net api
@@ -766,10 +778,36 @@ o documentation TODOs for 2.1.8
     o PRO: lua-functions as callbacks - then remote marshalling will work
     o add remote support where it makes sense (only for PRO?)
 
-. QuickCheck: create a new property for testing duplicates; the key is always
-    the same. The number of duplicate keys is tracked and periodically
-    checked with the API. A cursor can be used to remove a specific
-    duplicate, or to fetch a specific duplicate.
+. architecture for a new webpage
+    -> will first start with the admin page, and the client's page for
+        downloading, creating support requests etc
+    o pick an awesome design
+        i.e. similar to http://foundationdb.com, http://laravel.com,
+        http://rethinkdb.com, http://www.orientechnologies.com
+    o pick a framework for routing and infrastructure (phalcon? laravel?);
+        90% will be serving static pages
+    o page contents are written in markdown, textile or
+        reStructuredText (http://sphinx-doc.org/rest.html)
+    o Makefile converts markdown to html, can use M4 for preprocessing?
+    o Makefile can "scp -r" everything to the servers (staging or production)
+    o come up with the full site structure/contents
+    o documentation comments are hosted on disqus
+        o try to seamlessly integrate the doxygen documentation,
+            the javagen documentation, the erlang docs and the .NET docs 
+            (and whatever comes in the future)
+        o keep the documentation in the source tree, not in -www?
+    o blog comments are hosted on disqus, articles are also written in rst
+    . client area with (low priority)
+        o authentication
+        o collection of files
+        o analytics (who downloads what and when?)
+    . admin area with (even lower priority)
+        o authentication
+        o customer database
+        o implementing business processes
+        o sending out release emails
+        o importing new releases
+        o etc
 
 . look into hive-integration
     -> would be an interesting market with requirements for column store
@@ -779,36 +817,6 @@ o documentation TODOs for 2.1.8
     o write down everything i find, collect information and estimate
         efforts/gains (will do the same for mysql, R and mongodb later); this
         task is not about writing code!
-
-. architecture for a new webpage
-    -> will first start with the admin page, and the client's page for
-        downloading, creating support requests etc
-    o pick an awesome design
-        i.e. similar to http://foundationdb.com, http://laravel.com,
-        http://rethinkdb.com, http://www.orientechnologies.com
-    o pick a framework for routing and infrastructure (phalcon? laravel?)
-    o page contents are written in markdown, textile or
-        reStructuredText (http://sphinx-doc.org/rest.html)
-    o Makefile converts markdown to html
-    o Makefile can "scp -r" everything to the servers (staging or production)
-    o client area with
-        o authentication
-        o collection of files
-        o analytics (who downloads what and when?)
-    o admin area with
-        o authentication
-        o customer database
-        o implementing business processes
-        o sending out release emails
-        o importing new releases
-        o etc
-    . come up with the full site structure/contents
-    . documentation comments are hosted on disqus
-        o try to seamlessly integrate the doxygen documentation,
-            the javagen documentation, the erlang docs and the .NET docs 
-            (and whatever comes in the future)
-        o keep the documentation in the source tree, not in -www?
-    . blog comments are hosted on disqus, articles are also written in rst
 
 ------------- hamsterdb 2.1.8 ---------------------------------------
 

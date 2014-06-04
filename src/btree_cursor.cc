@@ -187,6 +187,10 @@ BtreeCursor::insert(ham_key_t *key, ham_record_t *record, ham_u32_t flags)
   ham_assert(key);
   ham_assert(record);
 
+  // set duplicate index to 0; other values could confuse the insert routines
+  // in the btree
+  m_duplicate_index = 0;
+
   // call the btree insert function
   return (m_btree->insert(txn, m_parent, key, record, flags));
 }

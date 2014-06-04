@@ -569,10 +569,9 @@ sort_by_offset(const SortHelper &lhs, const SortHelper &rhs) {
 // allocation of space.
 //
 // The UpfrontIndex stores metadata at the beginning:
-//     [0..3]   capacity (number of available slots)
-//     [4..7]   freelist count
-//     [8..11]  next offset
-//     [12..17] range size
+//     [0..3]  freelist count
+//     [4..7]  next offset
+//     [8..11] range size
 //
 // Data is stored in the following layout:
 // |metadata|slot1|slot2|...|slotN|free1|free2|...|freeM|data1|data2|...|dataN|
@@ -580,8 +579,8 @@ sort_by_offset(const SortHelper &lhs, const SortHelper &rhs) {
 class UpfrontIndex
 {
     enum {
-      // for capacity, freelist_count, next_offset, range_size
-      kPayloadOffset = 16,
+      // for freelist_count, next_offset, range_size
+      kPayloadOffset = 12,
 
       // width of the 'size' field
       kSizeofSize = sizeof(ham_u16_t)
@@ -590,7 +589,7 @@ class UpfrontIndex
   public:
     // Constructor
     UpfrontIndex(LocalDatabase *db)
-      : m_data(0), m_rearrange_counter(0) {
+      : m_data(0), m_capacity(0), m_rearrange_counter(0) {
       size_t page_size = db->get_local_env()->get_page_size();
       if (page_size <= 64 * 1024)
         m_sizeof_offset = 2;
@@ -602,16 +601,17 @@ class UpfrontIndex
     // If |capacity| is 0 then use the value that is already stored in the page
     void create(ham_u8_t *data, size_t full_range_size_bytes, size_t capacity) {
       m_data = data;
-      set_capacity(capacity);
+      m_capacity = capacity;
       set_full_range_size(full_range_size_bytes);
       clear();
     }
 
     // Initialization routine; sets data pointer and reads everything else
     // from that pointer
-    void open(ham_u8_t *data) {
+    void open(ham_u8_t *data, size_t capacity) {
       m_data = data;
-      // the rearrange-counter is not persisted, but it's crucial. therefore
+      m_capacity = capacity;
+      // the rearrange-counter is not persisted, therefore
       // pretend that the counter is very high; in worst case this will cause
       // an invalid call to rearrange(), which is not a problem
       m_rearrange_counter = get_full_range_size();
@@ -894,12 +894,7 @@ class UpfrontIndex
 
     // Returns the capacity
     size_t get_capacity() const {
-      return (ham_db2h32(*(ham_u32_t *)m_data));
-    }
-
-    // Returns the full size of the range
-    ham_u32_t get_full_range_size() const {
-      return (ham_db2h32(*(ham_u32_t *)(m_data + 12)));
+      return (m_capacity);
     }
 
     // Invalidates the cached "next offset"
@@ -956,9 +951,14 @@ class UpfrontIndex
       memset(p, 0, slot_size);
     }
 
+    // Returns the full size of the range
+    ham_u32_t get_full_range_size() const {
+      return (ham_db2h32(*(ham_u32_t *)(m_data + 8)));
+    }
+
     // Returns the offset of the unused space at the end of the page
     ham_u32_t get_next_offset(ham_u32_t node_count) {
-      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
+      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 4));
       if (ret == (ham_u32_t)-1 && node_count > 0) {
         ret = calc_next_offset(node_count);
         set_next_offset(ret);
@@ -992,24 +992,19 @@ class UpfrontIndex
         *(ham_u32_t *)p = offset;
     }
 
-    // Stores the capacity
-    void set_capacity(size_t capacity) {
-      *(ham_u32_t *)m_data = ham_h2db32(capacity);
-    }
-
     // Returns the number of freelist entries
     size_t get_freelist_count() const {
-      return (ham_db2h32(*(ham_u32_t *)(m_data + 4)));
+      return (ham_db2h32(*(ham_u32_t *)m_data));
     }
 
     // Sets the number of freelist entries
     void set_freelist_count(size_t freelist_count) {
-      *(ham_u32_t *)(m_data + 4) = ham_h2db32(freelist_count);
+      *(ham_u32_t *)m_data = ham_h2db32(freelist_count);
     }
 
     // Returns the offset of the unused space at the end of the page
     ham_u32_t get_next_offset(ham_u32_t node_count) const {
-      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 8));
+      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 4));
       if (ret == (ham_u32_t)-1)
         return calc_next_offset(node_count);
       return (ret);
@@ -1029,13 +1024,13 @@ class UpfrontIndex
 
     // Sets the offset of the unused space at the end of the page
     void set_next_offset(ham_u32_t next_offset) {
-      *(ham_u32_t *)(m_data + 8) = ham_h2db32(next_offset);
+      *(ham_u32_t *)(m_data + 4) = ham_h2db32(next_offset);
     }
 
     // The full size of the whole range (includes metadata overhead at the
     // beginning)
     void set_full_range_size(ham_u32_t full_size) {
-      *(ham_u32_t *)(m_data + 12) = ham_h2db32(full_size);
+      *(ham_u32_t *)(m_data + 8) = ham_h2db32(full_size);
     }
 
     // The physical data in the node
@@ -1043,6 +1038,9 @@ class UpfrontIndex
 
     // The size of the offset; either 16 or 32 bits, depending on page size
     size_t m_sizeof_offset;
+
+    // The capacity (number of available slots)
+    size_t m_capacity;
 
     // A counter to indicate when rearranging the data makes sense
     int m_rearrange_counter;
@@ -1108,9 +1106,9 @@ class VariableLengthKeyList
     }
 
     // Opens an existing KeyList
-    void open(ham_u8_t *ptr) {
+    void open(ham_u8_t *ptr, size_t capacity) {
       m_data = ptr;
-      m_index.open(m_data);
+      m_index.open(m_data, capacity);
     }
 
     // Returns the capacity of the range
@@ -1469,6 +1467,14 @@ class DuplicateRecordList
         // counter (7 bits)
         m_duplicate_threshold = 0x7f;
       }
+
+      // set the threshold low enough that we can fit at least 10 keys
+      // into the page
+      if (m_index.get_capacity() / m_duplicate_threshold < 10) {
+        m_duplicate_threshold = m_index.get_capacity() / 10;
+        if (m_duplicate_threshold <= 1)
+          m_duplicate_threshold = 2;
+      }
     }
 
     // Destructor - clears the cache
@@ -1492,7 +1498,7 @@ class DuplicateRecordList
     // Opens an existing RecordList
     void open(ham_u8_t *ptr, size_t capacity) {
       m_data = ptr;
-      m_index.open(m_data);
+      m_index.open(m_data, capacity);
     }
 
     // Returns the full size of the range
@@ -1823,7 +1829,8 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
       // store the new record inline
       if (m_record_size > 0)
-        memcpy(get_record_data(duplicate_index), record->data, record->size);
+        memcpy(get_record_data(slot, duplicate_index),
+                        record->data, record->size);
 
       if (new_duplicate_index)
         *new_duplicate_index = duplicate_index;
@@ -2377,8 +2384,8 @@ class DefaultNodeImpl
     typedef DefaultNodeImpl<KeyList, RecordList> NodeType;
 
     enum {
-      // for capacity, freelist_count, next_offset
-      kPayloadOffset = 12
+      // for capacity
+      kPayloadOffset = 4
     };
 
   public:
@@ -2851,7 +2858,7 @@ class DefaultNodeImpl
         // track of the average capacity of older pages).
         m_capacity = capacity
                         ? capacity
-                        : db->get_btree_index()->get_statistics()->get_default_page_capacity();
+                        : 0;// TODO db->get_btree_index()->get_statistics()->get_default_page_capacity();
 
         // no data so far? then come up with a good default
         //
@@ -2866,19 +2873,27 @@ class DefaultNodeImpl
           m_recalc_capacity = true;
         }
 
+        // persist the capacity
+        ham_u8_t *p = m_node->get_data();
+        *(ham_u32_t *)p = m_capacity;
+        p += sizeof(ham_u32_t);
+
         // create the KeyList and RecordList
-        size_t key_range_size = usable_page_size
-                                - m_capacity * m_records.get_full_record_size();
-        m_keys.create(m_node->get_data(), key_range_size, m_capacity);
-        m_records.create(m_node->get_data() + key_range_size,
-                        m_capacity * m_records.get_full_record_size(),
+        size_t key_range_size = m_capacity * m_keys.get_full_key_size();
+        m_keys.create(p, key_range_size, m_capacity);
+        m_records.create(p + key_range_size,
+                        usable_page_size - key_range_size,
                         m_capacity);
       }
       else {
-        m_keys.open(m_node->get_data());
-        m_capacity = m_keys.get_capacity();
-        size_t key_range_size = m_keys.get_full_range_size();
-        m_records.open(m_node->get_data() + key_range_size, m_capacity);
+        // get the capacity
+        ham_u8_t *p = m_node->get_data();
+        m_capacity = *(ham_u32_t *)p;
+        p += sizeof(ham_u32_t);
+
+        m_keys.open(p, m_capacity);
+        size_t key_range_size = m_capacity * m_keys.get_full_key_size();
+        m_records.open(p + key_range_size, m_capacity);
       }
     }
 
