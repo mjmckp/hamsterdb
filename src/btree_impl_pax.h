@@ -498,6 +498,11 @@ class BinaryKeyList
 class DefaultRecordList
 {
   public:
+    enum {
+      // A flag whether this RecordList has sequential data
+      kHasSequentialData = 1
+    };
+
     // Constructor
     DefaultRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_flags(0), m_data(0), m_capacity(0) {
@@ -820,6 +825,11 @@ class DefaultRecordList
 class InternalRecordList
 {
   public:
+    enum {
+      // A flag whether this RecordList has sequential data
+      kHasSequentialData = 1
+    };
+
     // Constructor
     InternalRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_data(0), m_capacity(0) {
@@ -988,6 +998,11 @@ class InternalRecordList
 class InlineRecordList
 {
   public:
+    enum {
+      // A flag whether this RecordList has sequential data
+      kHasSequentialData = 1
+    };
+
     // Constructor
     InlineRecordList(LocalDatabase *db, PBtreeNode *node)
       : m_db(db), m_record_size(db->get_record_size()), m_data(0), m_dummy(0),

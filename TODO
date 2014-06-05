@@ -593,6 +593,7 @@ o Refactorings for the Default layout with the following goals:
         nodes are no longer resized? -> yes, a big one
         x stats->get_default_page_capacity should not wait till it has 5
             values; just take the mean of what is there
+        x perform whenever rearrange() is not sufficient
         o implement resize algorithm: instead of splitting, perform a
             recalculation (if possible)
             x if key and record are both fixed (no duplicates) then

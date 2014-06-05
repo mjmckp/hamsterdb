@@ -1441,6 +1441,11 @@ class DuplicateRecordList
     typedef std::map<ham_u64_t, DuplicateTable *> DuplicateTableCache;
 
   public:
+    enum {
+      // A flag whether this RecordList has sequential data
+      kHasSequentialData = 0
+    };
+
     // Constructor
     DuplicateRecordList(LocalDatabase *db, PBtreeNode *node,
                     bool store_flags, size_t record_size)
@@ -2662,11 +2667,13 @@ class DefaultNodeImpl
 #ifdef HAM_DEBUG
       check_index_integrity(m_node->get_count());
 #endif
-      // instead of implementing  complex resize logic: just store a hint
-      // whether the capacity is enough or not. New pages can then use that
-      // hint to improve their capacity.
+      // try to resize the lists before admitting defeat and splitting
+      // the page
       if (m_keys.requires_split(count, key)
-            ||  m_records.requires_split(count)) {
+            || m_records.requires_split(count)) {
+        if (resize(key))
+          return (false);
+        // still here? then there's no way to avoid the split
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
         if (count >= m_capacity - 1)
           bi->get_statistics()->set_page_capacity(m_capacity * 1.5);
@@ -2850,6 +2857,112 @@ class DefaultNodeImpl
         size_t key_range_size = m_capacity * m_keys.get_full_key_size();
         m_records.open(p + key_range_size, m_capacity);
       }
+    }
+
+    // Tries to resize the node to make room for |key| (and one additional
+    // record). Returns true if resize was successfull and the key and a
+    // record will fit
+    bool resize(const ham_key_t *key) {
+      size_t node_count = m_node->get_count();
+
+      // One of the lists must be resizable (otherwise they would be managed
+      // by the PaxLayout)
+      ham_assert(!KeyList::kHasSequentialData
+              || !RecordList::kHasSequentialData);
+
+      // Theoretically the capacity can be increased, but this is complex
+      // and anyway unlikely because we start with a relatively high
+      // capacity. In such a case we just force a page split
+      if (node_count == m_capacity - 1)
+        return (false);
+
+      // One of the lists is PAX. Resize the space of the non-PAX list
+      // by reducing the PAX capacity
+      if (KeyList::kHasSequentialData || RecordList::kHasSequentialData) {
+        size_t shrink_slots = (m_capacity - node_count) / 2;
+        if (shrink_slots == 0)
+          shrink_slots = 1;
+        size_t new_capacity = m_capacity - shrink_slots;
+        size_t usable_page_size = get_usable_page_size();
+
+        // persist the new capacity
+        ham_u8_t *p = m_node->get_data();
+        *(ham_u32_t *)p = m_capacity;
+        p += sizeof(ham_u32_t);
+
+        // If the KeyList is PAX then reduce its capacity and give the
+        // remaining space to the RecordList
+        size_t key_range_size;
+        if (KeyList::kHasSequentialData)
+          key_range_size = new_capacity * m_keys.get_full_key_size();
+        else // And vice versa
+          key_range_size = usable_page_size
+                            - new_capacity * m_records.get_full_record_size();
+
+        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
+        m_records.shrink_capacity(m_capacity, new_capacity,
+                          p + key_range_size,
+                          usable_page_size - key_range_size);
+
+        // finally check if the new space is sufficient for the new key
+        return (m_records.requires_split(node_count)
+                && m_keys.requires_split(node_count, key));
+      }
+
+      // Both lists are non-PAX
+      //
+      // Check which list requires more space; if both then fail immediately
+      bool increase_key_space = m_keys.requires_split(node_count, key);
+      bool increase_record_space = m_records.requires_split(node_count);
+      if (increase_key_space && increase_record_space)
+        return (false);
+
+      size_t shrink_slots = (m_capacity - node_count) / 2;
+      if (shrink_slots == 0)
+        shrink_slots = 1;
+      size_t new_capacity = m_capacity - shrink_slots;
+      size_t usable_page_size = get_usable_page_size();
+
+      // get a pointer to the data; the capacity will be updated later
+      ham_u8_t *p = m_node->get_data();
+      p += sizeof(ham_u32_t);
+
+      // The KeyList requires more space; reduce the capacity of both lists,
+      // but make sure that the size of the KeyList grows sufficiently
+      if (increase_key_space) {
+        // assert that the record list was rearranged (rearrange-counter == 0)
+        // size_t current_range = m_records.get_sizeof_currently_used_bytes();
+        // current_range += shrink_slots * m_records.get_full_record_size();
+        // TODO make sure that the new range is not larger than the old one
+        // size_t key_range_size = usable_page_size - current_range;
+        //  otherwise return false
+        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
+        m_records.shrink_capacity(m_capacity, new_capacity,
+                          p + key_range_size,
+                          usable_page_size - key_range_size);
+      }
+      // If the RecordList requires more space then again reduce the capacity
+      // of both lists, but make sure that the size of the RecordList grows
+      else {
+        ham_assert(increase_record_space == true);
+        // assert that the key list was rearranged (rearrange-counter == 0)
+        // size_t key_range_size = m_keys.get_sizeof_currently_used_bytes();
+        // key_range_size += shrink_slots * m_keys.get_full_key_size();
+        // TODO make sure that the new range is not larger than the old one;
+        //  otherwise return false
+        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
+        m_records.shrink_capacity(m_capacity, new_capacity,
+                          p + key_range_size,
+                          usable_page_size - key_range_size);
+      }
+
+      // now persist the new capacity
+      p = m_node->get_data();
+      *(ham_u32_t *)p = m_capacity;
+
+      // finally check if the new space is sufficient for the new key
+      return (m_records.requires_split(node_count)
+              && m_keys.requires_split(node_count, key));
     }
 
     // Checks the integrity of the key- and record-ranges. Throws an exception
