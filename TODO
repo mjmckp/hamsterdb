@@ -580,6 +580,15 @@ o Refactorings for the Default layout with the following goals:
     x node needs to store its capacity (in the node layout, not in
         the KeyList or RecordList)
 
+    x RecordList::clear really required? - no
+    x btree_flags: kHasNoRecords still required? - no
+    x btree_flags: kInitialized still required? - no
+    x get rid of test_set_key() - it requires many unnecessary functions
+    x do we need KeyList::get_capacity()? - yes
+    x get rid of test_clear_page()
+    x is RecordList::clear really required? - yes!
+    x fix TODOs in btree_node_proxy
+
     o run some tests related to file sizes - is it a problem that the
         nodes are no longer resized? -> yes, a big one
         x stats->get_default_page_capacity should not wait till it has 5
@@ -600,16 +609,10 @@ o Refactorings for the Default layout with the following goals:
             (currently the stats are not used)
         o use m_recalc_capacity (currently not used) - or remove it?
             not sure if it's required
+        o verify that the capacity will not be too low; i.e. when
+            using duplicates, the duptable-threshold is sometimes set to 2
         o fix TODOs in btree_default.cpp - might need better resize()
             implementation if there are too many splits
-
-    x btree_flags: kHasNoRecords still required? - no
-    x btree_flags: kInitialized still required? - no
-    x get rid of test_set_key() - it requires many unnecessary functions
-    x do we need KeyList::get_capacity()? - yes
-    x get rid of test_clear_page()
-    x is RecordList::clear really required? - yes!
-    x fix TODOs in btree_node_proxy
 
     o the m_recalc_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not
@@ -640,16 +643,12 @@ o Refactorings for the Default layout with the following goals:
     o do we really need get_record_id/set_record_id? not convinced...
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
-    o move print() down to the layout/keylist?
+    o move print() down to the layout/keylist, this will obsolete
+        even more public functions (get_record_data, get_key_data...)
     o then once more check if we can remove functions in the layout
 
     o can the two btree formats (pax/default) be merged? if yes then they could
         maybe be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
-
-    o adjust file names
-        - btree_layout_distinct
-        - btree_layout_duplicate
-        - btree_layout_common
 
     o collect test cases and systematically test for all possible layouts
         o insert/erase/find
@@ -797,24 +796,22 @@ o QuickCheck: create a new property for testing duplicates; the key is always
     o add remote support where it makes sense (only for PRO?)
 
 . architecture for a new webpage
-    -> will first start with the admin page, and the client's page for
-        downloading, creating support requests etc
     o pick an awesome design
         i.e. similar to http://foundationdb.com, http://laravel.com,
         http://rethinkdb.com, http://www.orientechnologies.com
-    o pick a framework for routing and infrastructure (phalcon? laravel?);
-        90% will be serving static pages
-    o page contents are written in markdown, textile or
-        reStructuredText (http://sphinx-doc.org/rest.html)
-    o Makefile converts markdown to html, can use M4 for preprocessing?
-    o Makefile can "scp -r" everything to the servers (staging or production)
+    o use make/m4/markdown to generate static pages:
+        https://github.com/datagrok/m4-bakery
     o come up with the full site structure/contents
-    o documentation comments are hosted on disqus
-        o try to seamlessly integrate the doxygen documentation,
-            the javagen documentation, the erlang docs and the .NET docs 
-            (and whatever comes in the future)
+        o include full documentation, one page per API
+        o ... and for all languages
         o keep the documentation in the source tree, not in -www?
-    o blog comments are hosted on disqus, articles are also written in rst
+    o documentation comments are hosted on disqus
+    o blog comments are hosted on disqus, articles are also written in markup
+
+    o static pages will be served with nginx, using url rewrites
+    o dynamic pages are created with a micro-framework (silex?)
+    o Makefile can "scp -r" everything to the servers (staging or production)
+
     . client area with (low priority)
         o authentication
         o collection of files

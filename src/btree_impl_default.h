@@ -945,14 +945,6 @@ class UpfrontIndex
       m_rearrange_counter = 0;
     }
 
-    // Clears a record; don't do anything here, because clear() is called
-    // on a record which does not have space assigned.
-    void clear(ham_u32_t slot) {
-      size_t slot_size = get_full_index_size();
-      ham_u8_t *p = &m_data[kPayloadOffset + slot_size * slot];
-      memset(p, 0, slot_size);
-    }
-
     // Returns the full size of the range
     ham_u32_t get_full_range_size() const {
       return (ham_db2h32(*(ham_u32_t *)(m_data + 8)));
@@ -1126,7 +1118,7 @@ class VariableLengthKeyList
     // Returns the actual key size including overhead; this is just a guess
     // since we don't know how large the keys will be
     size_t get_full_key_size() const {
-      return (32);
+      return (24);
     }
 
     // Returns the size of a single key
@@ -1724,6 +1716,9 @@ class DuplicateInlineRecordList : public DuplicateRecordList
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
                                     1 + m_record_size);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
+        // clear the flags
+        m_data[chunk_offset] = 0;
+
         set_inline_record_count(slot, 1);
       }
 
@@ -1740,6 +1735,10 @@ class DuplicateInlineRecordList : public DuplicateRecordList
               && !m_index.can_allocate_space(m_node->get_count(),
                             required_size))
           force_duptable = true;
+
+        // update chunk_offset - it might have been modified if
+        // m_index.can_allocate_space triggered a rearrange() operation
+        chunk_offset = m_index.get_absolute_chunk_offset(slot);
 
         // already too many duplicates, or the record does not fit? then
         // allocate an overflow duplicate list and move all duplicates to
@@ -1896,11 +1895,6 @@ class DuplicateInlineRecordList : public DuplicateRecordList
     // violation.
     void check_integrity(ham_u32_t node_count) const {
       m_index.check_integrity(node_count);
-    }
-
-    // Clears a record; don't do anything here, because clear() is called
-    // on a record which does not have space assigned.
-    void clear(ham_u32_t slot) {
     }
 
     // Returns true if there's not enough space for another record
@@ -2098,9 +2092,11 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
         flags |= HAM_OVERWRITE;
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot, 1 + 9);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
-        set_inline_record_count(slot, 1);
         // clear the record flags
+        m_data[chunk_offset] = 0;
         m_data[chunk_offset + 1] = BtreeRecord::kBlobSizeEmpty;
+
+        set_inline_record_count(slot, 1);
       }
 
       // if there's no duplicate table, but we're not able to add another
@@ -2115,6 +2111,10 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
               && !m_index.can_allocate_space(m_node->get_count(),
                             required_size))
           force_duptable = true;
+      
+        // update chunk_offset - it might have been modified if
+        // m_index.can_allocate_space triggered a rearrange() operation
+        chunk_offset = m_index.get_absolute_chunk_offset(slot);
 
         // already too many duplicates, or the record does not fit? then
         // allocate an overflow duplicate list and move all duplicates to
@@ -2325,12 +2325,6 @@ write_record:
     // violation.
     void check_integrity(ham_u32_t node_count) const {
       m_index.check_integrity(node_count);
-    }
-
-    // Clears a record; don't do anything here, because clear() is called
-    // on a record which does not have space assigned.
-    void clear(ham_u32_t slot) {
-      m_index.clear(slot);
     }
 
     // Returns true if there's not enough space for another record
@@ -2652,10 +2646,7 @@ class DefaultNodeImpl
       // make space for 1 additional element.
       // only store the key data; flags and record IDs are set by the caller
       m_keys.insert(slot, count, key);
-
-      if (count > slot)
-        m_records.make_space(slot, count);
-      m_records.clear(slot);
+      m_records.make_space(slot, count);
 
 #ifdef HAM_DEBUG
       check_index_integrity(count + 1);
@@ -2814,6 +2805,10 @@ class DefaultNodeImpl
            || (m_node->get_count() == 0
                 && !(db->get_rt_flags() & HAM_READ_ONLY))) {
         size_t usable_page_size = get_usable_page_size();
+        size_t record_size = m_records.get_full_record_size();
+        if (db->get_rt_flags() & HAM_ENABLE_DUPLICATES)
+          record_size *= 2;
+
         // if yes then ask the btree for the default capacity (it keeps
         // track of the average capacity of older pages).
         m_capacity = capacity
@@ -2827,7 +2822,7 @@ class DefaultNodeImpl
         if (m_capacity <= 10) {
           m_capacity = usable_page_size
                             / (m_keys.get_full_key_size()
-                                + m_records.get_full_record_size());
+                                + record_size);
 
           // the default might not be precise and might be recalculated later
           m_recalc_capacity = true;

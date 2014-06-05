@@ -652,10 +652,14 @@ class DefaultRecordList
     }
 
     // Creates space for one additional record
-    void make_space(ham_u32_t slot, size_t count) {
-      memmove(&m_flags[slot + 1], &m_flags[slot], count - slot);
-      memmove(&m_data[slot + 1], &m_data[slot],
-                     sizeof(ham_u64_t) * (count - slot));
+    void make_space(ham_u32_t slot, size_t node_count) {
+      if (slot < node_count) {
+        memmove(&m_flags[slot + 1], &m_flags[slot], node_count - slot);
+        memmove(&m_data[slot + 1], &m_data[slot],
+                       sizeof(ham_u64_t) * (node_count - slot));
+      }
+      m_flags[slot] = 0;
+      memset(&m_data[slot], 0, sizeof(ham_u64_t));
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
@@ -887,9 +891,12 @@ class InternalRecordList
     }
 
     // Creates space for one additional record
-    void make_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot + 1], &m_data[slot],
-                     sizeof(ham_u64_t) * (count - slot));
+    void make_space(ham_u32_t slot, size_t node_count) {
+      if (slot < node_count) {
+        memmove(&m_data[slot + 1], &m_data[slot],
+                       sizeof(ham_u64_t) * (node_count - slot));
+      }
+      memset(&m_data[slot], 0, sizeof(ham_u64_t));
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
@@ -1061,9 +1068,12 @@ class InlineRecordList
     }
 
     // Creates space for one additional record
-    void make_space(ham_u32_t slot, size_t count) {
-      memmove(&m_data[slot + 1], &m_data[slot],
-                     m_record_size * (count - slot));
+    void make_space(ham_u32_t slot, size_t node_count) {
+      if (slot < node_count) {
+        memmove(&m_data[slot + 1], &m_data[slot],
+                       m_record_size * (node_count - slot));
+      }
+      memset(&m_data[slot], 0, m_record_size);
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
@@ -1388,10 +1398,7 @@ class PaxNodeImpl
       // make space for 1 additional element.
       // only store the key data; flags and record IDs are set by the caller
       m_keys.insert(slot, count, key);
-
-      if (count > slot)
-        m_records.make_space(slot, count);
-      m_records.clear(slot);
+      m_records.make_space(slot, count);
     }
 
     // Returns true if |key| cannot be inserted because a split is required
