@@ -2876,42 +2876,11 @@ class DefaultNodeImpl
       if (node_count == m_capacity - 1)
         return (false);
 
-      // One of the lists is PAX. Resize the space of the non-PAX list
-      // by reducing the PAX capacity
-      if (KeyList::kHasSequentialData || RecordList::kHasSequentialData) {
-        size_t shrink_slots = (m_capacity - node_count) / 2;
-        if (shrink_slots == 0)
-          shrink_slots = 1;
-        size_t new_capacity = m_capacity - shrink_slots;
-        size_t usable_page_size = get_usable_page_size();
-
-        // persist the new capacity
-        ham_u8_t *p = m_node->get_data();
-        *(ham_u32_t *)p = m_capacity;
-        p += sizeof(ham_u32_t);
-
-        // If the KeyList is PAX then reduce its capacity and give the
-        // remaining space to the RecordList
-        size_t key_range_size;
-        if (KeyList::kHasSequentialData)
-          key_range_size = new_capacity * m_keys.get_full_key_size();
-        else // And vice versa
-          key_range_size = usable_page_size
-                            - new_capacity * m_records.get_full_record_size();
-
-        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
-        m_records.shrink_capacity(m_capacity, new_capacity,
-                          p + key_range_size,
-                          usable_page_size - key_range_size);
-
-        // finally check if the new space is sufficient for the new key
-        return (m_records.requires_split(node_count)
-                && m_keys.requires_split(node_count, key));
-      }
-
-      // Both lists are non-PAX
+      // Check which list requires more space; if both are full then
+      // fail immediately
       //
-      // Check which list requires more space; if both then fail immediately
+      // TODO those two calls to requires_split() are already performed
+      // in the caller!
       bool increase_key_space = m_keys.requires_split(node_count, key);
       bool increase_record_space = m_records.requires_split(node_count);
       if (increase_key_space && increase_record_space)
@@ -2923,42 +2892,47 @@ class DefaultNodeImpl
       size_t new_capacity = m_capacity - shrink_slots;
       size_t usable_page_size = get_usable_page_size();
 
-      // get a pointer to the data; the capacity will be updated later
-      ham_u8_t *p = m_node->get_data();
-      p += sizeof(ham_u32_t);
+      // get a pointer to the data area
+      ham_u8_t *p = m_node->get_data() + sizeof(ham_u32_t);
+
+      // calculate the required size for the KeyList
+      size_t key_range_size;
 
       // The KeyList requires more space; reduce the capacity of both lists,
       // but make sure that the size of the KeyList grows sufficiently
       if (increase_key_space) {
-        // assert that the record list was rearranged (rearrange-counter == 0)
-        // size_t current_range = m_records.get_sizeof_currently_used_bytes();
-        // current_range += shrink_slots * m_records.get_full_record_size();
-        // TODO make sure that the new range is not larger than the old one
-        // size_t key_range_size = usable_page_size - current_range;
-        //  otherwise return false
-        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
-        m_records.shrink_capacity(m_capacity, new_capacity,
-                          p + key_range_size,
-                          usable_page_size - key_range_size);
+        ham_assert(KeyList::kHasSequentialData == false);
+        // TODO assert that the record list was rearranged
+        // (rearrange-counter == 0) or rearrange it once more
+        size_t record_range_size = m_records.calculate_required_range_size(
+                                        new_capacity);
+        // make sure that the new range is not larger than the old one;
+        ham_assert(record_range_size <= m_records.get_total_range_size());
+        key_range_size = usable_page_size - record_range_size;
       }
       // If the RecordList requires more space then again reduce the capacity
       // of both lists, but make sure that the size of the RecordList grows
       else {
         ham_assert(increase_record_space == true);
-        // assert that the key list was rearranged (rearrange-counter == 0)
-        // size_t key_range_size = m_keys.get_sizeof_currently_used_bytes();
-        // key_range_size += shrink_slots * m_keys.get_full_key_size();
-        // TODO make sure that the new range is not larger than the old one;
-        //  otherwise return false
-        m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
-        m_records.shrink_capacity(m_capacity, new_capacity,
-                          p + key_range_size,
-                          usable_page_size - key_range_size);
+        ham_assert(RecordList::kHasSequentialData == false);
+        // TODO assert that the key list was rearranged
+        // (rearrange-counter == 0) or rearrange it once more
+        key_range_size = m_keys.calculate_required_range_size(new_capacity);
+        // make sure that the new range is not larger than the old one;
+        // otherwise return false
+        ham_assert(key_range_size <= m_keys.get_total_range_size());
       }
 
-      // now persist the new capacity
+      // now shrink the capacity
+      m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
+      m_records.shrink_capacity(m_capacity, new_capacity,
+                        p + key_range_size,
+                        usable_page_size - key_range_size);
+
+      // persist the new capacity
       p = m_node->get_data();
-      *(ham_u32_t *)p = m_capacity;
+      *(ham_u32_t *)p = new_capacity;
+      m_capacity = new_capacity;
 
       // finally check if the new space is sufficient for the new key
       return (m_records.requires_split(node_count)
