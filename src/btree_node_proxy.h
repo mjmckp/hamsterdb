@@ -611,12 +611,12 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
         }
         else {
          printf("%03u:    ", i);
-         printf("    %08u -> %08llx\n", *(ham_u32_t *)m_impl.get_key_data(i),
-                  (unsigned long long)m_impl.get_record_id(i));
-         //for (ham_u32_t j = 0; j < m_impl.get_key_size(i); j++)
-           //printf("%c", ((const char *)m_impl.get_key_data(i))[j]);
-         //printf(" (%d) -> %08llx\n", m_impl.get_key_size(i),
-                          //(unsigned long long)m_impl.get_record_id(i));
+         //printf("    %08u -> %08llx\n", *(ham_u32_t *)m_impl.get_key_data(i),
+                  //(unsigned long long)m_impl.get_record_id(i));
+         for (ham_u32_t j = 0; j < m_impl.get_key_size(i); j++)
+           printf("%c", ((const char *)m_impl.get_key_data(i))[j]);
+         printf(" (%d) -> %08llx\n", (int)m_impl.get_key_size(i),
+                          (unsigned long long)m_impl.get_record_id(i));
         }
       }
     }

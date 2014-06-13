@@ -594,28 +594,45 @@ o Refactorings for the Default layout with the following goals:
         x stats->get_default_page_capacity should not wait till it has 5
             values; just take the mean of what is there
         x perform whenever rearrange() is not sufficient
-        o implement resize algorithm: instead of splitting, perform a
+        x implement resize algorithm: instead of splitting, perform a
             recalculation (if possible)
             x if key and record are both fixed (no duplicates) then
                 abort (should never happen b/c this is handled
                 by the pax layout)
-            o if key is indexed and record is fixed: we can only decrease
+            x if key is indexed and record is fixed: we can only decrease
                 capacity of the record, and increase capacity (and data
                 size) of the keys
-            o ... or vice versa
-            o if keys are variable and duplicates are enabled then we can resize
+            x ... or vice versa
+            x if keys are variable and duplicates are enabled then we can resize
                 freely (if there is enough space)
-            o this needs many unittests
+            x RecordList::vacuumize(), KeyList::vacuumize()
+                x nop for PAX, otherwise call m_index.rearrange()
+                x rename rearrange() to vacuumize()
+            x KeyList::change_capacity()
+                x nop for PAX, otherwise change capacity
+            x RecordList::change_capacity()
+                x nop for PAX, otherwise change capacity
+            x fix the unittests
+
+            o this needs many unittests for each of those functions, with
+                all possible RecordList/KeyList combinations
+                (how should those tests look like??)
+
+        o also increase the node capacity (btree_impl_default.h)
+
+        o should we place limits on changing the capacity?
+            - max. 4 times if it was initialized from scratch
+            - max. 2 times if it was initialized based on statistics
+            ?? but we could not persist this...
+
         o capacity: should track different stats for leaf and internal nodes!
             (currently the stats are not used)
         o use m_recalc_capacity (currently not used) - or remove it?
             not sure if it's required
         o verify that the capacity will not be too low; i.e. when
             using duplicates, the duptable-threshold is sometimes set to 2
-        o fix TODOs in btree_default.cpp - might need better resize()
-            implementation if there are too many splits
 
-    o the m_recalc_counter could store the number of free bytes; then it's
+    o the m_vacuumize_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,

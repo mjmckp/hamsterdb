@@ -271,7 +271,23 @@ class PodKeyList
     }
 
     // Rearranges the list; not supported
-    void rearrange(ham_u32_t node_count) const {
+    void vacuumize(ham_u32_t node_count, bool force) const {
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      return (new_capacity * get_full_key_size());
+    }
+
+    // Change the capacity; for PAX layouts this just means copying the
+    // data from one place to the other
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      memmove(new_data_ptr, m_data, node_count * sizeof(T));
+      m_data = (T *)new_data_ptr;
+      m_capacity = new_capacity;
     }
 
   private:
@@ -476,7 +492,23 @@ class BinaryKeyList
     }
 
     // Rearranges the list; not supported
-    void rearrange(ham_u32_t node_count) const {
+    void vacuumize(ham_u32_t node_count, bool force) const {
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      return (new_capacity * get_full_key_size());
+    }
+
+    // Change the capacity; for PAX layouts this just means copying the
+    // data from one place to the other
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      memmove(new_data_ptr, m_data, node_count * m_key_size);
+      m_data = new_data_ptr;
+      m_capacity = new_capacity;
     }
 
   private:
@@ -765,7 +797,35 @@ class DefaultRecordList
     }
 
     // Rearranges the list; not supported
-    void rearrange(ham_u32_t node_count) const {
+    void vacuumize(ham_u32_t node_count, bool force) const {
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      return (new_capacity * get_full_record_size());
+    }
+
+    // Change the capacity; for PAX layouts this just means copying the
+    // data from one place to the other
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      // shift "to the right"? then first shift key data, otherwise
+      // the flags might overwrite the data
+      if (new_data_ptr > m_flags) {
+        memmove(&new_data_ptr[new_capacity], m_data,
+                node_count * sizeof(ham_u64_t));
+        memmove(new_data_ptr, m_flags, node_count);
+      }
+      else {
+        memmove(new_data_ptr, m_flags, node_count);
+        memmove(&new_data_ptr[new_capacity], m_data,
+                node_count * sizeof(ham_u64_t));
+      }
+      m_flags = new_data_ptr;
+      m_data = (ham_u64_t *)&new_data_ptr[new_capacity];
+      m_capacity = new_capacity;
     }
 
   private:
@@ -976,7 +1036,23 @@ class InternalRecordList
     }
 
     // Rearranges the list; not supported
-    void rearrange(ham_u32_t node_count) const {
+    void vacuumize(ham_u32_t node_count, bool force) const {
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      return (new_capacity * get_full_record_size());
+    }
+
+    // Change the capacity; for PAX layouts this just means copying the
+    // data from one place to the other
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      memmove(new_data_ptr, m_data, node_count * get_full_record_size());
+      m_data = (ham_u64_t *)new_data_ptr;
+      m_capacity = new_capacity;
     }
 
   private:
@@ -1166,7 +1242,23 @@ class InlineRecordList
     }
 
     // Rearranges the list; not supported
-    void rearrange(ham_u32_t node_count) const {
+    void vacuumize(ham_u32_t node_count, bool force) const {
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      return (new_capacity * get_full_record_size());
+    }
+
+    // Change the capacity; for PAX layouts this just means copying the
+    // data from one place to the other
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      memmove(new_data_ptr, m_data, node_count * get_full_record_size());
+      m_data = new_data_ptr;
+      m_capacity = new_capacity;
     }
 
   private:

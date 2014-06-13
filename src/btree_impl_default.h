@@ -581,17 +581,19 @@ sort_by_offset(const SortHelper &lhs, const SortHelper &rhs) {
 class UpfrontIndex
 {
     enum {
-      // for freelist_count, next_offset, range_size
-      kPayloadOffset = 12,
-
       // width of the 'size' field
       kSizeofSize = sizeof(ham_u16_t)
     };
 
   public:
+    enum {
+      // for freelist_count, next_offset, range_size
+      kPayloadOffset = 12,
+    };
+
     // Constructor
     UpfrontIndex(LocalDatabase *db)
-      : m_data(0), m_capacity(0), m_rearrange_counter(0) {
+      : m_data(0), m_capacity(0), m_vacuumize_counter(0) {
       size_t page_size = db->get_local_env()->get_page_size();
       if (page_size <= 64 * 1024)
         m_sizeof_offset = 2;
@@ -608,15 +610,41 @@ class UpfrontIndex
       clear();
     }
 
+    // Initialization routine; used to copy the index when the list is resized
+    void change_capacity(size_t node_count, ham_u8_t *new_data_ptr,
+            size_t full_range_size_bytes, size_t new_capacity) {
+      size_t used_data_size = get_next_offset(node_count); 
+      ham_u8_t *src = &m_data[kPayloadOffset
+                            + m_capacity * get_full_index_size()];
+      ham_u8_t *dst = &new_data_ptr[kPayloadOffset
+                            + new_capacity * get_full_index_size()];
+      // shift "to the right"? Then first move the data and afterwards the index
+      if (new_data_ptr > m_data) {
+        memmove(dst, src, used_data_size);
+        memmove(new_data_ptr, m_data,
+                kPayloadOffset + new_capacity * get_full_index_size());
+      }
+      // vice versa otherwise
+      else {
+        if (new_data_ptr != m_data)
+          memmove(new_data_ptr, m_data,
+                  kPayloadOffset + new_capacity * get_full_index_size());
+        memmove(dst, src, used_data_size);
+      }
+      m_data = new_data_ptr;
+      m_capacity = new_capacity;
+      set_full_range_size(full_range_size_bytes);
+    }
+
     // Initialization routine; sets data pointer and reads everything else
     // from that pointer
     void open(ham_u8_t *data, size_t capacity) {
       m_data = data;
       m_capacity = capacity;
-      // the rearrange-counter is not persisted, therefore
+      // the vacuumize-counter is not persisted, therefore
       // pretend that the counter is very high; in worst case this will cause
-      // an invalid call to rearrange(), which is not a problem
-      m_rearrange_counter = get_full_range_size();
+      // an invalid call to vacuumize(), which is not a problem
+      m_vacuumize_counter = get_full_range_size();
     }
 
     // Returns the size of a single index entry
@@ -661,10 +689,10 @@ class UpfrontIndex
       *(ham_u16_t *)p = size;
     }
 
-    // Increases the "rearrange-counter", which is an indicator whether
+    // Increases the "vacuumize-counter", which is an indicator whether
     // rearranging the node makes sense
-    void increase_rearrange_counter() {
-      m_rearrange_counter++;
+    void increase_vacuumize_counter() {
+      m_vacuumize_counter++;
     }
 
     // Returns true if this index has at least one free slot available.
@@ -700,7 +728,7 @@ class UpfrontIndex
 
       set_freelist_count(get_freelist_count() + 1);
 
-      increase_rearrange_counter();
+      increase_vacuumize_counter();
 
       // nothing to do if we delete the very last (used) slot; the freelist
       // counter was already incremented, the used counter is decremented
@@ -723,7 +751,7 @@ class UpfrontIndex
     // Returns true if this page has enough space for at least |num_bytes|
     // bytes
     bool can_allocate_space(ham_u32_t node_count, size_t num_bytes,
-                    bool no_rearrange = false) {
+                    bool no_vacuumize = false) {
       // first check if we can append the data; this is the cheapest check,
       // therefore it comes first
       if (get_next_offset(node_count) + num_bytes <= get_usable_data_size())
@@ -735,13 +763,13 @@ class UpfrontIndex
         if (get_chunk_size(i) >= num_bytes)
           return (true);
 
-      if (no_rearrange)
+      if (no_vacuumize)
         return (false);
 
-      // does it make sense to rearrange the node?
-      if (m_rearrange_counter > 0) {
-        rearrange(node_count);
-        ham_assert(m_rearrange_counter == 0);
+      // does it make sense to vacuumize the node?
+      if (m_vacuumize_counter > 0) {
+        vacuumize(node_count);
+        ham_assert(m_vacuumize_counter == 0);
         // and try again
         return (can_allocate_space(node_count, num_bytes));
       }
@@ -856,8 +884,8 @@ class UpfrontIndex
       }
 
       // this node has lost lots of its data - make sure that it will be
-      // rearranged as soon as more data is allocated
-      m_rearrange_counter += node_count;
+      // vacuumized as soon as more data is allocated
+      m_vacuumize_counter += node_count;
       set_freelist_count(0);
       set_next_offset((ham_u32_t)-1);
     }
@@ -865,8 +893,8 @@ class UpfrontIndex
     // Merges all chunks from the |other| index to this index
     void merge_from(UpfrontIndex *other, size_t node_count,
                     size_t other_node_count) {
-      if (m_rearrange_counter)
-        rearrange(node_count);
+      if (m_vacuumize_counter)
+        vacuumize(node_count);
       
       for (size_t i = 0; i < other_node_count; i++) {
         insert_slot(i + node_count, i + node_count);
@@ -881,14 +909,14 @@ class UpfrontIndex
     }
 
     // Returns a pointer to the actual data of a chunk
-    void *get_chunk_data(ham_u32_t offset) {
+    ham_u8_t *get_chunk_data(ham_u32_t offset) {
       return (&m_data[kPayloadOffset
                       + get_capacity() * get_full_index_size()
                       + offset]);
     }
 
     // Returns a pointer to the actual data of a chunk
-    void *get_chunk_data(ham_u32_t offset) const {
+    ham_u8_t *get_chunk_data(ham_u32_t offset) const {
       return (&m_data[kPayloadOffset
                       + get_capacity() * get_full_index_size()
                       + offset]);
@@ -906,8 +934,8 @@ class UpfrontIndex
 
     // Re-arranges the node: moves all keys sequentially to the beginning
     // of the key space, removes the whole freelist
-    void rearrange(ham_u32_t node_count) {
-      ham_assert(m_rearrange_counter > 0);
+    void vacuumize(ham_u32_t node_count) {
+      ham_assert(m_vacuumize_counter > 0);
 
       // get rid of the freelist - this node is now completely rewritten,
       // and the freelist would just complicate things
@@ -942,7 +970,7 @@ class UpfrontIndex
       }
 
       set_next_offset(next_offset);
-      m_rearrange_counter = 0;
+      m_vacuumize_counter = 0;
     }
 
     // Returns the full size of the range
@@ -960,6 +988,15 @@ class UpfrontIndex
       return (ret);
     }
 
+    // Returns the offset of the unused space at the end of the page
+    // (const version)
+    ham_u32_t get_next_offset(ham_u32_t node_count) const {
+      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 4));
+      if (ret == (ham_u32_t)-1)
+        return calc_next_offset(node_count);
+      return (ret);
+    }
+
   private:
     friend class UpfrontIndexFixture;
 
@@ -967,7 +1004,7 @@ class UpfrontIndex
     void clear() {
       set_freelist_count(0);
       set_next_offset(0);
-      m_rearrange_counter = 0;
+      m_vacuumize_counter = 0;
     }
 
     // Returns the size (in bytes) where payload data can be stored
@@ -994,14 +1031,6 @@ class UpfrontIndex
     // Sets the number of freelist entries
     void set_freelist_count(size_t freelist_count) {
       *(ham_u32_t *)m_data = ham_h2db32(freelist_count);
-    }
-
-    // Returns the offset of the unused space at the end of the page
-    ham_u32_t get_next_offset(ham_u32_t node_count) const {
-      ham_u32_t ret = ham_db2h32(*(ham_u32_t *)(m_data + 4));
-      if (ret == (ham_u32_t)-1)
-        return calc_next_offset(node_count);
-      return (ret);
     }
 
     // Calculates and returns the next offset; does not store it
@@ -1037,7 +1066,7 @@ class UpfrontIndex
     size_t m_capacity;
 
     // A counter to indicate when rearranging the data makes sense
-    int m_rearrange_counter;
+    int m_vacuumize_counter;
 };
 
 //
@@ -1129,13 +1158,13 @@ class VariableLengthKeyList
     // Returns the flags of a single key
     ham_u8_t get_key_flags(ham_u32_t slot) const {
       ham_u32_t offset = m_index.get_chunk_offset(slot);
-      return (*(ham_u8_t *)m_index.get_chunk_data(offset));
+      return (*m_index.get_chunk_data(offset));
     }
 
     // Sets the flags of a single key
     void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
       ham_u32_t offset = m_index.get_chunk_offset(slot);
-      *(ham_u8_t *)m_index.get_chunk_data(offset) = flags;
+      *m_index.get_chunk_data(offset) = flags;
     }
 
     // Copies a key into |dest|; memory must be allocated by the caller
@@ -1162,13 +1191,13 @@ class VariableLengthKeyList
     // Returns the pointer to a key's data
     ham_u8_t *get_key_data(ham_u32_t slot) {
       ham_u32_t offset = m_index.get_chunk_offset(slot);
-      return ((ham_u8_t *)m_index.get_chunk_data(offset) + 1);
+      return (m_index.get_chunk_data(offset) + 1);
     }
 
     // Returns the pointer to a key's data (const flavour)
     ham_u8_t *get_key_data(ham_u32_t slot) const {
       ham_u32_t offset = m_index.get_chunk_offset(slot);
-      return ((ham_u8_t *)m_index.get_chunk_data(offset) + 1);
+      return (m_index.get_chunk_data(offset) + 1);
     }
 
     // Overwrites the data of the key
@@ -1324,9 +1353,32 @@ class VariableLengthKeyList
     }
 
     // Rearranges the list
-    void rearrange(ham_u32_t node_count) {
-      m_index.increase_rearrange_counter();
-      m_index.rearrange(node_count);
+    void vacuumize(ham_u32_t node_count, bool force) {
+      if (force)
+        m_index.increase_vacuumize_counter();
+      m_index.vacuumize(node_count);
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      size_t ret = UpfrontIndex::kPayloadOffset
+                    + new_capacity * m_index.get_full_index_size();
+      ret += m_index.get_next_offset(node_count);
+      if (node_count < new_capacity)
+        ret += (new_capacity - node_count) * get_full_key_size();
+      return (ret);
+    }
+
+    // Change the capacity; the capacity will be reduced, growing is not
+    // implemented. Which means that the data area must be copied; the offsets
+    // do not have to be changed.
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      ham_assert(new_capacity < old_capacity);
+      m_index.change_capacity(node_count, new_data_ptr, new_range_size,
+              new_capacity);
     }
 
   private:
@@ -1582,9 +1634,22 @@ class DuplicateRecordList
     }
 
     // Rearranges the list
-    void rearrange(ham_u32_t node_count) {
-      m_index.increase_rearrange_counter();
-      m_index.rearrange(node_count);
+    void vacuumize(ham_u32_t node_count, bool force) {
+      if (force)
+        m_index.increase_vacuumize_counter();
+      m_index.vacuumize(node_count);
+    }
+
+    // Change the capacity; the capacity will be reduced, growing is not
+    // implemented. Which means that the data area must be copied; the offsets
+    // do not have to be changed.
+    void change_capacity(size_t node_count, size_t old_capacity,
+            size_t new_capacity, ham_u8_t *new_data_ptr,
+            size_t new_range_size) {
+      ham_assert(new_capacity < old_capacity);
+      m_index.change_capacity(node_count, new_data_ptr, new_range_size,
+              new_capacity);
+      m_data = new_data_ptr;
     }
 
   protected:
@@ -1742,7 +1807,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
           force_duptable = true;
 
         // update chunk_offset - it might have been modified if
-        // m_index.can_allocate_space triggered a rearrange() operation
+        // m_index.can_allocate_space triggered a vacuumize() operation
         chunk_offset = m_index.get_absolute_chunk_offset(slot);
 
         // already too many duplicates, or the record does not fit? then
@@ -1765,7 +1830,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
           // TODO merge those three calls; only call invalidate_next_offset()
           // if the next offset is now invalid 
           m_index.set_chunk_size(slot, 8 + 1);
-          m_index.increase_rearrange_counter();
+          m_index.increase_vacuumize_counter();
           m_index.invalidate_next_offset();
 
           // fall through
@@ -1905,6 +1970,17 @@ class DuplicateInlineRecordList : public DuplicateRecordList
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
       return (m_index.requires_split(node_count, get_full_record_size()));
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      size_t ret = UpfrontIndex::kPayloadOffset
+                    + new_capacity * m_index.get_full_index_size();
+      ret += m_index.get_next_offset(node_count);
+      if (node_count < new_capacity)
+        ret += (new_capacity - node_count) * get_full_record_size();
+      return (ret);
     }
 
   private:
@@ -2118,7 +2194,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
           force_duptable = true;
       
         // update chunk_offset - it might have been modified if
-        // m_index.can_allocate_space triggered a rearrange() operation
+        // m_index.can_allocate_space triggered a vacuumize() operation
         chunk_offset = m_index.get_absolute_chunk_offset(slot);
 
         // already too many duplicates, or the record does not fit? then
@@ -2141,7 +2217,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
           // TODO merge those three calls; only call invalidate_next_offset()
           // if the next offset is now invalid 
           m_index.set_chunk_size(slot, 10);
-          m_index.increase_rearrange_counter();
+          m_index.increase_vacuumize_counter();
           m_index.invalidate_next_offset();
 
           // fall through
@@ -2335,6 +2411,17 @@ write_record:
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
       return (m_index.requires_split(node_count, get_full_record_size()));
+    }
+
+    // Calculates the required size for a range with the specified |capacity|
+    size_t calculate_required_range_size(size_t node_count,
+            size_t new_capacity) const {
+      size_t ret = UpfrontIndex::kPayloadOffset
+                    + new_capacity * m_index.get_full_index_size();
+      ret += m_index.get_next_offset(node_count);
+      if (node_count < new_capacity)
+        ret += (new_capacity - node_count) * get_full_record_size();
+      return (ret);
     }
 
   private:
@@ -2662,23 +2749,33 @@ class DefaultNodeImpl
     // This function will try to re-arrange the node in order for the new
     // key to fit in.
     bool requires_split(const ham_key_t *key) {
-      ham_u32_t count = m_node->get_count();
+      ham_u32_t node_count = m_node->get_count();
 
 #ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
+      check_index_integrity(node_count);
 #endif
       // try to resize the lists before admitting defeat and splitting
       // the page
-      if (m_keys.requires_split(count, key)
-            || m_records.requires_split(count)) {
-        if (resize(key))
+      bool keys_require_split = m_keys.requires_split(node_count, key);
+      bool records_require_split = m_records.requires_split(node_count);
+      if (keys_require_split || records_require_split) {
+        // Theoretically the capacity can be increased, but this is complex
+        // and anyway unlikely because we start with a relatively high
+        // capacity. In such a case simply force a page split.
+        if (node_count >= m_capacity - 1) {
+          ham_trace(("increasing capacity - not supported"));
+          return (true);
+        }
+
+        // otherwise resize the lists
+        if (resize(key, keys_require_split, records_require_split))
           return (false);
         // still here? then there's no way to avoid the split
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
-        if (count >= m_capacity - 1)
+        if (node_count >= m_capacity - 1)
           bi->get_statistics()->set_page_capacity(m_capacity * 1.5);
         else
-          bi->get_statistics()->set_page_capacity(count);
+          bi->get_statistics()->set_page_capacity(node_count);
         return (true);
       }
 
@@ -2708,7 +2805,7 @@ class DefaultNodeImpl
       // in internal nodes the pivot element is only propagated to the
       // parent node. the pivot element is skipped.
       //
-      // afterwards immediately rearrange the indices, otherwise the next
+      // afterwards immediately vacuumize the indices, otherwise the next
       // insert() will not be able to reuse the new space
       if (m_node->is_leaf()) {
         m_keys.copy_to(pivot, count, other->m_keys, other_count, 0);
@@ -2720,8 +2817,8 @@ class DefaultNodeImpl
                        other_count,  0);
       }
 
-      m_keys.rearrange(pivot);
-      m_records.rearrange(pivot);
+      m_keys.vacuumize(pivot, true);
+      m_records.vacuumize(pivot, true);
 
 #ifdef HAM_DEBUG
       check_index_integrity(pivot);
@@ -2742,8 +2839,8 @@ class DefaultNodeImpl
       ham_u32_t count = m_node->get_count();
       ham_u32_t other_count = other->m_node->get_count();
 
-      m_keys.rearrange(count);
-      m_records.rearrange(count);
+      m_keys.vacuumize(count, true);
+      m_records.vacuumize(count, true);
 
       // shift items from the sibling to this page
       other->m_keys.copy_to(0, other_count, m_keys, count, count);
@@ -2862,7 +2959,8 @@ class DefaultNodeImpl
     // Tries to resize the node to make room for |key| (and one additional
     // record). Returns true if resize was successfull and the key and a
     // record will fit
-    bool resize(const ham_key_t *key) {
+    bool resize(const ham_key_t *key, bool keys_require_split,
+            bool records_require_split) {
       size_t node_count = m_node->get_count();
 
       // One of the lists must be resizable (otherwise they would be managed
@@ -2870,20 +2968,9 @@ class DefaultNodeImpl
       ham_assert(!KeyList::kHasSequentialData
               || !RecordList::kHasSequentialData);
 
-      // Theoretically the capacity can be increased, but this is complex
-      // and anyway unlikely because we start with a relatively high
-      // capacity. In such a case we just force a page split
-      if (node_count == m_capacity - 1)
-        return (false);
-
       // Check which list requires more space; if both are full then
       // fail immediately
-      //
-      // TODO those two calls to requires_split() are already performed
-      // in the caller!
-      bool increase_key_space = m_keys.requires_split(node_count, key);
-      bool increase_record_space = m_records.requires_split(node_count);
-      if (increase_key_space && increase_record_space)
+      if (keys_require_split && records_require_split)
         return (false);
 
       size_t shrink_slots = (m_capacity - node_count) / 2;
@@ -2899,33 +2986,30 @@ class DefaultNodeImpl
       size_t key_range_size;
 
       // The KeyList requires more space; reduce the capacity of both lists,
-      // but make sure that the size of the KeyList grows sufficiently
-      if (increase_key_space) {
+      // but make sure that the size of the KeyList grows
+      if (keys_require_split) {
         ham_assert(KeyList::kHasSequentialData == false);
-        // TODO assert that the record list was rearranged
-        // (rearrange-counter == 0) or rearrange it once more
+        // make sure that the RecordList is packed
+        m_records.vacuumize(node_count, true);
         size_t record_range_size = m_records.calculate_required_range_size(
-                                        new_capacity);
-        // make sure that the new range is not larger than the old one;
-        ham_assert(record_range_size <= m_records.get_total_range_size());
+                                        node_count, new_capacity);
         key_range_size = usable_page_size - record_range_size;
       }
       // If the RecordList requires more space then again reduce the capacity
       // of both lists, but make sure that the size of the RecordList grows
       else {
-        ham_assert(increase_record_space == true);
+        ham_assert(records_require_split == true);
         ham_assert(RecordList::kHasSequentialData == false);
-        // TODO assert that the key list was rearranged
-        // (rearrange-counter == 0) or rearrange it once more
-        key_range_size = m_keys.calculate_required_range_size(new_capacity);
-        // make sure that the new range is not larger than the old one;
-        // otherwise return false
-        ham_assert(key_range_size <= m_keys.get_total_range_size());
+        // make sure that the KeyList is packed
+        m_keys.vacuumize(node_count, true);
+        key_range_size = m_keys.calculate_required_range_size(node_count,
+                                        new_capacity);
       }
 
-      // now shrink the capacity
-      m_keys.shrink_capacity(m_capacity, new_capacity, p, key_range_size);
-      m_records.shrink_capacity(m_capacity, new_capacity,
+      // now change the capacity
+      m_keys.change_capacity(node_count, m_capacity, new_capacity,
+                        p, key_range_size);
+      m_records.change_capacity(node_count, m_capacity, new_capacity,
                         p + key_range_size,
                         usable_page_size - key_range_size);
 
@@ -2934,9 +3018,13 @@ class DefaultNodeImpl
       *(ham_u32_t *)p = new_capacity;
       m_capacity = new_capacity;
 
+#ifdef HAM_DEBUG
+      check_index_integrity(node_count);
+#endif
+
       // finally check if the new space is sufficient for the new key
-      return (m_records.requires_split(node_count)
-              && m_keys.requires_split(node_count, key));
+      return (!m_records.requires_split(node_count)
+                && !m_keys.requires_split(node_count, key));
     }
 
     // Checks the integrity of the key- and record-ranges. Throws an exception
