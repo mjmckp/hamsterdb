@@ -843,6 +843,7 @@ class UpfrontIndex
         ranges.push_back(range);
       }
 
+#if 0
       std::sort(ranges.begin(), ranges.end());
 
       if (!ranges.empty()) {
@@ -855,6 +856,7 @@ class UpfrontIndex
           }
         }
       }
+#endif
       if (next_offset != get_next_offset(node_count)) {
         ham_trace(("integrity violated: next offset %d, cached offset %d",
                     next_offset, get_next_offset(node_count)));
@@ -1298,19 +1300,19 @@ class VariableLengthKeyList
       }
 
       m_index.invalidate_next_offset();
-#ifdef HAM_DEBUG
-      dest.m_index.check_integrity(other_node_count + i);
-#endif
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t node_count) const {
+    void check_integrity(ham_u32_t node_count, bool quick = false) const {
       ByteArray arena;
 
-      //
+      // verify that the offsets and sizes are not overlapping
+      m_index.check_integrity(node_count);
+      if (quick)
+        return;
+
       // make sure that extkeys are handled correctly
-      //
       for (ham_u32_t i = 0; i < node_count; i++) {
         if (get_key_size(i) > m_extended_threshold
             && !(get_key_flags(i) & BtreeKey::kExtendedKey)) {
@@ -1347,9 +1349,6 @@ class VariableLengthKeyList
           }
         }
       }
-
-      // also verify that the offsets and sizes are not overlapping
-      m_index.check_integrity(node_count);
     }
 
     // Rearranges the list
@@ -1379,6 +1378,7 @@ class VariableLengthKeyList
       ham_assert(new_capacity < old_capacity);
       m_index.change_capacity(node_count, new_data_ptr, new_range_size,
               new_capacity);
+      m_data = new_data_ptr;
     }
 
   private:
@@ -1628,9 +1628,6 @@ class DuplicateRecordList
       }
 
       m_index.invalidate_next_offset();
-#ifdef HAM_DEBUG
-      dest.m_index.check_integrity(other_node_count + i);
-#endif
     }
 
     // Rearranges the list
@@ -1963,7 +1960,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t node_count) const {
+    void check_integrity(ham_u32_t node_count, bool quick = false) const {
       m_index.check_integrity(node_count);
     }
 
@@ -2404,7 +2401,7 @@ write_record:
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t node_count) const {
+    void check_integrity(ham_u32_t node_count, bool quick = false) const {
       m_index.check_integrity(node_count);
     }
 
@@ -2481,7 +2478,7 @@ class DefaultNodeImpl
     DefaultNodeImpl(Page *page)
       : m_page(page), m_node(PBtreeNode::from_page(m_page)),
         m_keys(page->get_db()), m_records(page->get_db(), m_node),
-        m_recalc_capacity(false), m_capacity(0) {
+        m_resize_limit(0), m_capacity(0) {
       initialize();
     }
 
@@ -2515,9 +2512,6 @@ class DefaultNodeImpl
     // Compares two keys
     template<typename Cmp>
     int compare(const ham_key_t *lhs, ham_u32_t rhs, Cmp &cmp) {
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
       ham_key_t tmp = {0};
       get_key(rhs, &m_arena, &tmp);
       return (cmp(lhs->data, lhs->size, tmp.data, tmp.size));
@@ -2531,7 +2525,7 @@ class DefaultNodeImpl
       ham_assert(count > 0);
 
 #ifdef HAM_DEBUG
-      check_index_integrity(count);
+      check_index_integrity(m_node->get_count());
 #endif
 
       int i, l = 0, r = count;
@@ -2649,9 +2643,6 @@ class DefaultNodeImpl
 
     // Returns the number of records of a key
     ham_u32_t get_record_count(ham_u32_t slot) {
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
       return (m_records.get_record_count(slot));
     }
 
@@ -2690,18 +2681,12 @@ class DefaultNodeImpl
 
     // Returns the record size of a key or one of its duplicates
     ham_u64_t get_record_size(ham_u32_t slot, int duplicate_index) {
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
       return (m_records.get_record_size(slot, duplicate_index));
     }
 
     // Erases an extended key
     void erase_key(ham_u32_t slot) {
       m_keys.erase_key(slot);
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
     }
 
     // Erases one (or all) records of a key
@@ -2731,9 +2716,6 @@ class DefaultNodeImpl
     // the next call of set_record().
     void insert(ham_u32_t slot, const ham_key_t *key) {
       ham_u32_t count = m_node->get_count();
-#ifdef HAM_DEBUG
-      check_index_integrity(count);
-#endif
 
       // make space for 1 additional element.
       // only store the key data; flags and record IDs are set by the caller
@@ -2751,9 +2733,6 @@ class DefaultNodeImpl
     bool requires_split(const ham_key_t *key) {
       ham_u32_t node_count = m_node->get_count();
 
-#ifdef HAM_DEBUG
-      check_index_integrity(node_count);
-#endif
       // try to resize the lists before admitting defeat and splitting
       // the page
       bool keys_require_split = m_keys.requires_split(node_count, key);
@@ -2763,13 +2742,14 @@ class DefaultNodeImpl
         // and anyway unlikely because we start with a relatively high
         // capacity. In such a case simply force a page split.
         if (node_count >= m_capacity - 1) {
-          ham_trace(("increasing capacity - not supported"));
+          //ham_trace(("increasing capacity - not supported"));
           return (true);
         }
 
         // otherwise resize the lists
         if (resize(key, keys_require_split, records_require_split))
           return (false);
+
         // still here? then there's no way to avoid the split
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
         if (node_count >= m_capacity - 1)
@@ -2929,7 +2909,7 @@ class DefaultNodeImpl
                                 + record_size);
 
           // the default might not be precise and might be recalculated later
-          m_recalc_capacity = true;
+          m_resize_limit = 3;
         }
 
         // persist the capacity
@@ -2951,7 +2931,7 @@ class DefaultNodeImpl
         p += sizeof(ham_u32_t);
 
         m_keys.open(p, m_capacity);
-        size_t key_range_size = m_capacity * m_keys.get_full_key_size();
+        size_t key_range_size = m_keys.get_full_range_size();
         m_records.open(p + key_range_size, m_capacity);
       }
     }
@@ -2970,12 +2950,20 @@ class DefaultNodeImpl
 
       // Check which list requires more space; if both are full then
       // fail immediately
-      if (keys_require_split && records_require_split)
+      if (keys_require_split && records_require_split) {
+        m_resize_limit = 0;
         return (false);
+      }
+
+      if (m_resize_limit == 0) {
+        ham_trace(("reached resize limit"));
+        return (false);
+      }
 
       size_t shrink_slots = (m_capacity - node_count) / 2;
       if (shrink_slots == 0)
-        shrink_slots = 1;
+        return (false);
+
       size_t new_capacity = m_capacity - shrink_slots;
       size_t usable_page_size = get_usable_page_size();
 
@@ -3022,6 +3010,11 @@ class DefaultNodeImpl
       check_index_integrity(node_count);
 #endif
 
+      --m_resize_limit;
+
+      // make sure that the page is flushed to disk
+      m_page->set_dirty(true);
+
       // finally check if the new space is sufficient for the new key
       return (!m_records.requires_split(node_count)
                 && !m_keys.requires_split(node_count, key));
@@ -3030,8 +3023,8 @@ class DefaultNodeImpl
     // Checks the integrity of the key- and record-ranges. Throws an exception
     // if there's a problem.
     void check_index_integrity(size_t node_count) const {
-      m_keys.check_integrity(node_count);
-      m_records.check_integrity(node_count);
+      m_keys.check_integrity(node_count, true);
+      m_records.check_integrity(node_count, true);
     }
 
     // Returns the usable page size that can be used for actually
@@ -3059,7 +3052,7 @@ class DefaultNodeImpl
     ByteArray m_arena;
 
     // Allow the capacity to be recalculated later on
-    bool m_recalc_capacity;
+    int m_resize_limit;
 
     // The current capacity of the node
     size_t m_capacity;

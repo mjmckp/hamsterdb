@@ -614,16 +614,27 @@ o Refactorings for the Default layout with the following goals:
                 x nop for PAX, otherwise change capacity
             x fix the unittests
 
-            o this needs many unittests for each of those functions, with
-                all possible RecordList/KeyList combinations
-                (how should those tests look like??)
+./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_050.tst
+btree_impl_default.h[831]: integrity violated: total count 495 (132+363) > capacity 314
+
+./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_052.tst
+btree_impl_default.h[831]: integrity violated: total count 495 (111+384) > capacity 303
+
+./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_060.tst
+btree_impl_default.h[831]: integrity violated: total count 495 (240+255) > capacity 368
+
+./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_061.tst
+btree_impl_default.h[831]: integrity violated: total count 495 (383+112) > capacity 439
+
+./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_062.tst
+btree_impl_default.h[831]: integrity violated: total count 495 (360+135) > capacity 428
 
         o also increase the node capacity (btree_impl_default.h)
 
         o should we place limits on changing the capacity?
             - max. 4 times if it was initialized from scratch
             - max. 2 times if it was initialized based on statistics
-            ?? but we could not persist this...
+            ?? but we cannot persist this...
 
         o capacity: should track different stats for leaf and internal nodes!
             (currently the stats are not used)

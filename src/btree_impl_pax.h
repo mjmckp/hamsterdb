@@ -267,7 +267,7 @@ class PodKeyList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t count) const {
+    void check_integrity(ham_u32_t count, bool quick = false) const {
     }
 
     // Rearranges the list; not supported
@@ -488,7 +488,7 @@ class BinaryKeyList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t count) const {
+    void check_integrity(ham_u32_t count, bool quick = false) const {
     }
 
     // Rearranges the list; not supported
@@ -793,7 +793,7 @@ class DefaultRecordList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t count) const {
+    void check_integrity(ham_u32_t count, bool quick = false) const {
     }
 
     // Rearranges the list; not supported
@@ -1032,7 +1032,7 @@ class InternalRecordList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t count) const {
+    void check_integrity(ham_u32_t count, bool quick = false) const {
     }
 
     // Rearranges the list; not supported
@@ -1238,7 +1238,7 @@ class InlineRecordList
 
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
-    void check_integrity(ham_u32_t count) const {
+    void check_integrity(ham_u32_t count, bool quick = false) const {
     }
 
     // Rearranges the list; not supported
