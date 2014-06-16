@@ -118,7 +118,7 @@ class PodKeyList
     }
 
     // Returns the actual key size including overhead
-    ham_u16_t get_full_key_size() const {
+    ham_u16_t get_full_key_size(const ham_key_t *key = 0) const {
       return (sizeof(T));
     }
 
@@ -333,7 +333,7 @@ class BinaryKeyList
     }
 
     // Returns the actual key size including overhead
-    ham_u16_t get_full_key_size() const {
+    ham_u16_t get_full_key_size(const ham_key_t *key = 0) const {
       return (m_key_size);
     }
 
@@ -552,6 +552,11 @@ class DefaultRecordList
       m_flags = data;
       m_data = (ham_u64_t *)&data[capacity];
       m_capacity = capacity;
+    }
+
+    // Returns the full size of the range
+    size_t get_full_range_size() const {
+      return (m_capacity * get_full_record_size());
     }
 
     // Returns the actual record size including overhead
@@ -907,6 +912,11 @@ class InternalRecordList
       m_capacity = capacity;
     }
 
+    // Returns the full size of the range
+    size_t get_full_range_size() const {
+      return (m_capacity * get_full_record_size());
+    }
+
     // Returns the actual size including overhead
     ham_u32_t get_full_record_size() const {
       return (sizeof(ham_u64_t));
@@ -1096,6 +1106,11 @@ class InlineRecordList
     void open(ham_u8_t *ptr, size_t capacity) {
       m_data = ptr;
       m_capacity = capacity;
+    }
+
+    // Returns the full size of the range
+    size_t get_full_range_size() const {
+      return (m_capacity * get_full_record_size());
     }
 
     // Returns the actual record size including overhead

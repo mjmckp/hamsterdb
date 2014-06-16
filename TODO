@@ -589,7 +589,7 @@ o Refactorings for the Default layout with the following goals:
     x is RecordList::clear really required? - yes!
     x fix TODOs in btree_node_proxy
 
-    o run some tests related to file sizes - is it a problem that the
+    x run some tests related to file sizes - is it a problem that the
         nodes are no longer resized? -> yes, a big one
         x stats->get_default_page_capacity should not wait till it has 5
             values; just take the mean of what is there
@@ -603,8 +603,8 @@ o Refactorings for the Default layout with the following goals:
                 capacity of the record, and increase capacity (and data
                 size) of the keys
             x ... or vice versa
-            x if keys are variable and duplicates are enabled then we can resize
-                freely (if there is enough space)
+            x if keys are variable and duplicates are enabled then we can
+                resize freely (if there is enough space)
             x RecordList::vacuumize(), KeyList::vacuumize()
                 x nop for PAX, otherwise call m_index.rearrange()
                 x rename rearrange() to vacuumize()
@@ -614,42 +614,47 @@ o Refactorings for the Default layout with the following goals:
                 x nop for PAX, otherwise change capacity
             x fix the unittests
 
-./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_050.tst
-btree_impl_default.h[831]: integrity violated: total count 495 (132+363) > capacity 314
+======================================
+    o also increase the node capacity (btree_impl_default.h)
+        x records are fixed length (keys are not)
+        x keys are fixed length (records are not)
+        x keys AND records are variable length
+        o check unittests
+        o check monster tests
+something is still wrong - the tests below (ham_bench --resize-fixed=0) creates
+now even larger files (+ 75%)! looks like the function does not crash, but
+also does not produce optimal results
+======================================
 
-./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_052.tst
-btree_impl_default.h[831]: integrity violated: total count 495 (111+384) > capacity 303
+    o collect test cases and systematically test for all possible layouts
+        - keys: uint32, uint64, binary (fixed), binary (var)
+        - records: empty, default 8, inline 8, 1024
+        o also check the file sizes vs 2.1.7
+        -> ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last
+            is now 60% larger! (was: 10551296)
+        -> ./ham_bench --recsize-fixed=0
+            is now 50% larger! (was: 20873216)
 
-./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_060.tst
-btree_impl_default.h[831]: integrity violated: total count 495 (240+255) > capacity 368
-
-./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_061.tst
-btree_impl_default.h[831]: integrity violated: total count 495 (383+112) > capacity 439
-
-./ham_bench --use-berkeleydb=true --reopen=true ../testfiles/2/ext_062.tst
-btree_impl_default.h[831]: integrity violated: total count 495 (360+135) > capacity 428
-
-        o also increase the node capacity (btree_impl_default.h)
-
-        o should we place limits on changing the capacity?
-            - max. 4 times if it was initialized from scratch
-            - max. 2 times if it was initialized based on statistics
-            ?? but we cannot persist this...
-
-        o capacity: should track different stats for leaf and internal nodes!
-            (currently the stats are not used)
-        o use m_recalc_capacity (currently not used) - or remove it?
-            not sure if it's required
-        o verify that the capacity will not be too low; i.e. when
-            using duplicates, the duptable-threshold is sometimes set to 2
-
+    x verify that the capacity will not be too low; i.e. when
+        using duplicates, the duptable-threshold is sometimes set to 2
     o the m_vacuumize_counter could store the number of free bytes; then it's
         easier to figure out whether a rearrange would make sense or not
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
+    o capacity: should track different stats for leaf and internal nodes!
+        (currently the stats are not used at all)
+    o new unittest for fixed binary keys with large size (1024) - will the
+        file size explode because the capacity is wrong? 
 
-    o fix the remaining TODOs in btree_impl_default.h
+    o should we place limits on changing the capacity?
+        - max. 4 times if it was initialized from scratch
+        - max. 2 times if it was initialized based on statistics
+        ?? but we cannot persist this...
+        -> is this really a good idea? IF the page can be resized
+            then we should do it, otherwise a split happens which is
+            always MORE expensive than resize()!
+
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
         and that the order of the parameters is consistent
@@ -662,6 +667,7 @@ btree_impl_default.h[831]: integrity violated: total count 495 (360+135) > capac
                 set_key_size_offset(offset, size)
                 set_key_flags_offset(offset, flags)
         o also review pax layout
+    o fix the remaining TODOs in btree_impl_default.h
 
     o there is lots of duplicate code in the PaxRecordLists; move to
         common base class
@@ -672,31 +678,23 @@ btree_impl_default.h[831]: integrity violated: total count 495 (360+135) > capac
     o do we really need get_record_id/set_record_id? not convinced...
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
+    o deprecate ham_db_enumerate?
     o move print() down to the layout/keylist, this will obsolete
         even more public functions (get_record_data, get_key_data...)
     o then once more check if we can remove functions in the layout
 
     o can the two btree formats (pax/default) be merged? if yes then they could
-        maybe be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
-
-    o collect test cases and systematically test for all possible layouts
-        o insert/erase/find
-        o insert/erase/find with duplicates
-        o insert/erase/find with duplicate tables
-        o insert/erase/find with extkeys
-        o insert/erase/find with extkeys, duplicate tables
-        o then repeat with different record sizes:
-                - empty (0)
-                - inline
-                - default, variable length
+        be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
 
     x could reduce library size a lot if the layout could deal with
         different page sizes (i.e. the offset type is chosen dynamically)
 
-    o new unittest for fixed binary keys with large size (1024) - will the
-        file size explode because the capacity is wrong? 
-
     o run performance tests
+        there are several tweaks that can be performed:
+      - btree_impl_default::resize() now shrinks the capacity by 25%; maybe
+        more (or less) makes sense
+      - should there be limits on changing the capacity?
+      - ...
     o run monster tests
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
@@ -713,6 +711,8 @@ o the steps above will create an incompatible file format
 
 o ham/types.h: do not include winsock2.h because it can conflict with
     winsock.h in the user's application
+
+. remove ham_db_enumerate; it will be replaced by hola
 
 . remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
@@ -941,6 +941,7 @@ o PRO: use grouped varints for compressing int32/int64, record IDs and
 o hola: use sum-prefix-trees to precalculate partial sums/results?
     they could be stored in a btree, and used to dynamically recalculate
     requested values 
+    https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf
 
 o use cache-oblivious b-tree layout
     -> http://supertech.csail.mit.edu/cacheObliviousBTree.html
