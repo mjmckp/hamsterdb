@@ -259,12 +259,6 @@ class PodKeyList
       return (node_count >= m_capacity - 1);
     }
 
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_capacity);
-    }
-
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count, bool quick = false) const {
@@ -478,12 +472,6 @@ class BinaryKeyList
     // Returns true if the |key| no longer fits into the node
     bool requires_split(size_t node_count, const ham_key_t *key) {
       return (node_count >= m_capacity - 1);
-    }
-
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -790,12 +778,6 @@ class DefaultRecordList
       return (node_count >= m_capacity - 1);
     }
 
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_capacity);
-    }
-
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count, bool quick = false) const {
@@ -1034,12 +1016,6 @@ class InternalRecordList
       return (node_count >= m_capacity - 1);
     }
 
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_capacity);
-    }
-
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t count, bool quick = false) const {
@@ -1243,12 +1219,6 @@ class InlineRecordList
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
       return (node_count >= m_capacity - 1);
-    }
-
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a

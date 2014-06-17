@@ -614,34 +614,35 @@ o Refactorings for the Default layout with the following goals:
                 x nop for PAX, otherwise change capacity
             x fix the unittests
 
-======================================
-    o also increase the node capacity (btree_impl_default.h)
+    x also increase the node capacity (btree_impl_default.h)
         x records are fixed length (keys are not)
         x keys are fixed length (records are not)
         x keys AND records are variable length
-        o check unittests
-        o check monster tests
-something is still wrong - the tests below (ham_bench --resize-fixed=0) creates
-now even larger files (+ 75%)! looks like the function does not crash, but
-also does not produce optimal results
-======================================
+        x check unittests
+        x check monster tests
 
     o collect test cases and systematically test for all possible layouts
         - keys: uint32, uint64, binary (fixed), binary (var)
         - records: empty, default 8, inline 8, 1024
-        o also check the file sizes vs 2.1.7
-        -> ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last
-            is now 60% larger! (was: 10551296)
-        -> ./ham_bench --recsize-fixed=0
-            is now 50% larger! (was: 20873216)
+        x also check the file sizes vs 2.1.7
+        x ./ham_bench --duplicate=last --seed=1402995765
+        x ./ham_bench --duplicate=last --seed=1402994555
+        o ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary \
+            --erase-pct=15 --find-pct=15 --recsize=8 --cache=104857600 \
+            --stop-ops=300000 --seed=1402991367
+            integrity check fails
+        x ./ham_bench --recsize-fixed=0
+            is now 200% larger! (was: 20873216)
+        o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last
+            is now 50% larger! (was: 10551296)
 
     x verify that the capacity will not be too low; i.e. when
         using duplicates, the duptable-threshold is sometimes set to 2
-    o the m_vacuumize_counter could store the number of free bytes; then it's
-        easier to figure out whether a rearrange would make sense or not
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
+    o the m_vacuumize_counter could store the number of free bytes; then it's
+        easier to figure out whether a rearrange would make sense or not
     o capacity: should track different stats for leaf and internal nodes!
         (currently the stats are not used at all)
     o new unittest for fixed binary keys with large size (1024) - will the
@@ -654,6 +655,13 @@ also does not produce optimal results
         -> is this really a good idea? IF the page can be resized
             then we should do it, otherwise a split happens which is
             always MORE expensive than resize()!
+
+    o do we really need get_record_id/set_record_id? not convinced...
+    o get rid of enumerate() - it uses get_key_data() without even checking
+        for extended keys!
+    o move print() down to the layout/keylist, this will obsolete
+        even more public functions (get_record_data, get_key_data...)
+    o then once more check if we can remove functions in the layout
 
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
@@ -675,13 +683,7 @@ also does not produce optimal results
         common base class
         o or can we merge the two duplicate RecordLists? 
     
-    o do we really need get_record_id/set_record_id? not convinced...
-    o get rid of enumerate() - it uses get_key_data() without even checking
-        for extended keys!
     o deprecate ham_db_enumerate?
-    o move print() down to the layout/keylist, this will obsolete
-        even more public functions (get_record_data, get_key_data...)
-    o then once more check if we can remove functions in the layout
 
     o can the two btree formats (pax/default) be merged? if yes then they could
         be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
@@ -711,6 +713,10 @@ o the steps above will create an incompatible file format
 
 o ham/types.h: do not include winsock2.h because it can conflict with
     winsock.h in the user's application
+
+o need new API to retrieve the duplicate position of a cursor:
+    ham_status_t ham_cursor_get_duplicate_position(ham_cursor_t *cursor,
+                    ham_u32_t *position)
 
 . remove ham_db_enumerate; it will be replaced by hola
 

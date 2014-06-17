@@ -613,11 +613,13 @@ class UpfrontIndex
     // Initialization routine; used to copy the index when the list is resized
     void change_capacity(size_t node_count, ham_u8_t *new_data_ptr,
             size_t full_range_size_bytes, size_t new_capacity) {
+      ham_assert(get_freelist_count() == 0);
       size_t used_data_size = get_next_offset(node_count); 
       ham_u8_t *src = &m_data[kPayloadOffset
                             + m_capacity * get_full_index_size()];
       ham_u8_t *dst = &new_data_ptr[kPayloadOffset
                             + new_capacity * get_full_index_size()];
+      ham_assert(dst - new_data_ptr + used_data_size <= full_range_size_bytes);
       // shift "to the right"? Then first move the data and afterwards
       // the index
       if (new_data_ptr > m_data) {
@@ -1150,9 +1152,9 @@ class VariableLengthKeyList
     // Returns the actual key size including overhead; this is just a guess
     // since we don't know how large the keys will be
     size_t get_full_key_size(const ham_key_t *key = 0) const {
-      return (key
-                ? key->size + m_index.get_full_index_size() + 1
-                : 32);
+      if (key && key->size > m_extkey_threshold)
+        return (sizeof(ham_u64_t) + m_index.get_full_index_size() + 1);
+      return (32);
     }
 
     // Returns the size of a single key
@@ -1278,12 +1280,6 @@ class VariableLengthKeyList
       return (m_index.requires_split(node_count, key->size + 1));
     }
 
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_index.get_capacity());
-    }
-
     // Copies |count| key from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t node_count,
                     VariableLengthKeyList &dest, size_t other_node_count,
@@ -1366,10 +1362,7 @@ class VariableLengthKeyList
             size_t new_capacity) const {
       size_t ret = UpfrontIndex::kPayloadOffset
                     + new_capacity * m_index.get_full_index_size();
-      ret += m_index.get_next_offset(node_count);
-      if (node_count < new_capacity)
-        ret += (new_capacity - node_count) * get_full_key_size();
-      return (ret);
+      return (ret + m_index.get_next_offset(node_count));
     }
 
     // Change the capacity; the capacity will be reduced, growing is not
@@ -1587,12 +1580,6 @@ class DuplicateRecordList
     // Inserts a slot for one additional record
     void make_space(ham_u32_t slot, size_t node_count) {
       m_index.insert_slot(slot, node_count);
-    }
-
-    // Returns true if the list can be resized
-    bool can_increase_capacity(size_t current_node_count,
-                    size_t new_node_count) const {
-      return (new_node_count <= m_index.get_capacity());
     }
 
     // Copies |count| items from this[sstart] to dest[dstart]
@@ -1963,10 +1950,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
             size_t new_capacity) const {
       size_t ret = UpfrontIndex::kPayloadOffset
                     + new_capacity * m_index.get_full_index_size();
-      ret += m_index.get_next_offset(node_count);
-      if (node_count < new_capacity)
-        ret += (new_capacity - node_count) * get_full_record_size();
-      return (ret);
+      return (ret + m_index.get_next_offset(node_count));
     }
 
   private:
@@ -2404,10 +2388,7 @@ write_record:
             size_t new_capacity) const {
       size_t ret = UpfrontIndex::kPayloadOffset
                     + new_capacity * m_index.get_full_index_size();
-      ret += m_index.get_next_offset(node_count);
-      if (node_count < new_capacity)
-        ret += (new_capacity - node_count) * get_full_record_size();
-      return (ret);
+      return (ret + m_index.get_next_offset(node_count));
     }
 
   private:
@@ -2725,7 +2706,7 @@ class DefaultNodeImpl
       bool records_require_split = m_records.requires_split(node_count);
       if (keys_require_split || records_require_split) {
         // Increase the node capacity
-        if (node_count == m_capacity) {
+        if (node_count >= m_capacity - 1) {
           if (increase_capacity(key))
             return (false);
         }
@@ -2948,10 +2929,12 @@ class DefaultNodeImpl
       ham_assert(!KeyList::kHasSequentialData
               || !RecordList::kHasSequentialData);
 
+#if 0
       if (m_resize_limit == 0) {
-        //ham_trace(("reached resize limit"));
+        ham_trace(("reached resize limit"));
         return (false);
       }
+#endif
 
 #ifdef HAM_DEBUG
       check_index_integrity(node_count);
@@ -2983,9 +2966,8 @@ class DefaultNodeImpl
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
         size_t add_slots = (unused / item_size) / 2;
-        size_t add_data = add_slots * item_size;
         new_capacity += add_slots;
-        key_range_size -= add_data;
+        key_range_size -= add_slots * m_records.get_full_record_size();
       }
       // case 2: the KeyList has sequential data (PAX), the RecordList has
       // variable length entries
@@ -3001,36 +2983,46 @@ class DefaultNodeImpl
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
         size_t add_slots = (unused / item_size) / 2;
-        size_t add_data = add_slots * item_size;
         new_capacity += add_slots;
-        key_range_size += add_data;
+        key_range_size += add_slots * m_keys.get_full_key_size();
       }
       // case 3: both lists have variable length items
       else {
         size_t record_range_size = m_records.get_full_range_size();
         // calculate unused bytes in both ranges
-        int unused = record_range_size
+        int unused_record_size = record_range_size
                 - m_records.calculate_required_range_size(node_count,
                                 m_capacity);
-        unused += key_range_size - m_keys.calculate_required_range_size(
-                                        node_count, m_capacity);
-        // remove the space required for the new item
-        unused -= m_keys.get_full_key_size(key)
-                + m_records.get_full_record_size();
-        if (unused < 0)
-          return (false);
+        unused_record_size -= m_records.get_full_record_size();
+        int unused_key_size = key_range_size
+                - m_keys.calculate_required_range_size(node_count,
+                                m_capacity);
+        unused_key_size -= m_keys.get_full_key_size(key);
 
+        size_t unused_total = unused_key_size + unused_record_size;
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
-        size_t add_slots = (unused / item_size) / 2;
+        size_t add_slots = (unused_total / item_size) / 2;
         new_capacity += add_slots;
+
+        key_range_size = m_keys.calculate_required_range_size(node_count,
+                                new_capacity);
       }
 
-      m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-      m_records.change_capacity(node_count, m_capacity, new_capacity,
+      if (key_range_size > m_keys.get_full_range_size()) {
+        m_records.change_capacity(node_count, m_capacity, new_capacity,
                         p + key_range_size,
                         usable_page_size - key_range_size);
+        m_keys.change_capacity(node_count, m_capacity, new_capacity,
+                        p, key_range_size);
+      }
+      else {
+        m_keys.change_capacity(node_count, m_capacity, new_capacity,
+                        p, key_range_size);
+        m_records.change_capacity(node_count, m_capacity, new_capacity,
+                        p + key_range_size,
+                        usable_page_size - key_range_size);
+      }
       
       // persist the new capacity
       p = m_node->get_data();
@@ -3070,10 +3062,12 @@ class DefaultNodeImpl
         return (false);
       }
 
+#if 0
       if (m_resize_limit == 0) {
-        //ham_trace(("reached resize limit"));
+        ham_trace(("reached resize limit"));
         return (false);
       }
+#endif
 
       // shrink the capacity by 25% to generate free space
       size_t shrink_slots = (m_capacity - node_count) / 4;
@@ -3114,12 +3108,26 @@ class DefaultNodeImpl
                                         new_capacity);
       }
 
+      ham_assert(usable_page_size - key_range_size
+                      >= m_records.calculate_required_range_size(node_count,
+                                        new_capacity));
+
+
       // now change the capacity
-      m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-      m_records.change_capacity(node_count, m_capacity, new_capacity,
+      if (key_range_size > m_keys.get_full_range_size()) {
+        m_records.change_capacity(node_count, m_capacity, new_capacity,
                         p + key_range_size,
                         usable_page_size - key_range_size);
+        m_keys.change_capacity(node_count, m_capacity, new_capacity,
+                        p, key_range_size);
+      }
+      else {
+        m_keys.change_capacity(node_count, m_capacity, new_capacity,
+                        p, key_range_size);
+        m_records.change_capacity(node_count, m_capacity, new_capacity,
+                        p + key_range_size,
+                        usable_page_size - key_range_size);
+      }
 
       // persist the new capacity
       p = m_node->get_data();
