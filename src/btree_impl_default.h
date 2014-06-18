@@ -784,13 +784,29 @@ class UpfrontIndex
                     size_t num_bytes) {
       ham_assert(can_allocate_space(node_count, num_bytes, true));
 
+      // maybe the current slot is large enough?
+#if 0
+      if (get_chunk_size(slot) >= num_bytes)
+        return (get_chunk_offset(slot));
+#endif
+
+      size_t next_offset = get_next_offset(node_count);
+
       // try to allocate space at the end of the node
-      if (get_next_offset(node_count) + num_bytes <= get_usable_data_size()) {
-        ham_u32_t offset = get_next_offset(node_count);
-        set_next_offset(offset + num_bytes);
-        set_chunk_offset(slot, offset);
+      if (next_offset + num_bytes <= get_usable_data_size()) {
+        // if this slot's data is at the very end then maybe it can be
+        // resized without actually moving the data
+#if 0
+        if (next_offset == get_chunk_offset(slot) + get_chunk_size(slot)) {
+          set_next_offset(get_chunk_offset(slot) + num_bytes);
+          set_chunk_size(slot, num_bytes);
+          return (get_chunk_offset(slot));
+        }
+#endif
+        set_next_offset(next_offset + num_bytes);
+        set_chunk_offset(slot, next_offset);
         set_chunk_size(slot, num_bytes);
-        return (offset);
+        return (next_offset);
       }
 
       size_t slot_size = get_full_index_size();
@@ -803,14 +819,13 @@ class UpfrontIndex
           set_chunk_size(slot, get_chunk_size(i));
           set_chunk_offset(slot, get_chunk_offset(i));
           // update next_offset?
-          if (get_next_offset(node_count)
-                == get_chunk_offset(i) + get_chunk_size(i))
+          if (next_offset == get_chunk_offset(i) + get_chunk_size(i))
             invalidate_next_offset();
           // remove from the freelist
           ham_u8_t *p = &m_data[kPayloadOffset + slot_size * i];
           memmove(p, p + slot_size, slot_size * (total_count - i - 1));
           set_freelist_count(get_freelist_count() - 1);
-          return (get_chunk_offset(i));
+          return (get_chunk_offset(slot));
         }
       }
 
@@ -1266,16 +1281,16 @@ class VariableLengthKeyList
       node_count++;
 
       // When inserting the data: always add 1 byte for key flags
-      if (key->size > m_extkey_threshold) {
+      if (key->size <= m_extkey_threshold) {
+        m_index.allocate_space(node_count, slot, key->size + 1);
+        set_key_flags(slot, 0);
+        set_key_data(slot, key->data, key->size);
+      }
+      else {
         ham_u64_t blob_id = add_extended_key(key);
         m_index.allocate_space(node_count, slot, 8 + 1);
         set_extended_blob_id(slot, blob_id);
         set_key_flags(slot, BtreeKey::kExtendedKey);
-      }
-      else {
-        m_index.allocate_space(node_count, slot, key->size + 1);
-        set_key_flags(slot, 0);
-        set_key_data(slot, key->data, key->size);
       }
     }
 

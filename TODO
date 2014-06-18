@@ -670,12 +670,11 @@ o Refactorings for the Default layout with the following goals:
             was: 10715136
             now: 15581184
 
-==============================
-test fails:
-    ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --erase-pct=15 --find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --duplicate=last --stop-ops=300000
-    -> then check monster4.lst
-    -> then add code from stash!
-==============================
+=======================
+./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --erase-pct=15
+--find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --duplicate=last
+afterwards: see "#if 0" ni btree_impl_default.h
+=======================
 
     o when allocating a DuplicateTable it's possible that the RecordList
         has not enough room for the 64bit table id (i.e. if records are
