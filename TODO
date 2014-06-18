@@ -621,46 +621,72 @@ o Refactorings for the Default layout with the following goals:
         x check unittests
         x check monster tests
 
-    o collect test cases and systematically test for all possible layouts
+    x collect test cases and systematically test for all possible layouts
         - keys: uint32, uint64, binary (fixed), binary (var)
         - records: empty, default 8, inline 8, 1024
         x also check the file sizes vs 2.1.7
         x ./ham_bench --duplicate=last --seed=1402995765
         x ./ham_bench --duplicate=last --seed=1402994555
-        o ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary \
+        x ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary \
             --erase-pct=15 --find-pct=15 --recsize=8 --cache=104857600 \
             --stop-ops=300000 --seed=1402991367
-            integrity check fails
-        x ./ham_bench --recsize-fixed=0
-            is now 200% larger! (was: 20873216)
-        o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last
-            is now 50% larger! (was: 10551296)
+        x ./ham_bench --use-berkeleydb=true --reopen=true  --key=uint32 --erase-pct=15 --find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --stop-ops=300000
+        x ./ham_bench --use-berkeleydb=true --reopen=true  --key=uint64 --erase-pct=15 --find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --stop-ops=300000
+        x ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --keysize-fixed --keysize=16 --recsize-fixed=8 --recsize=8 --erase-pct=15 --find-pct=15 --cache=104857600 --stop-ops=300000
+        x ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --erase-pct=15 --find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --stop-ops=300000
 
     x verify that the capacity will not be too low; i.e. when
         using duplicates, the duptable-threshold is sometimes set to 2
+    x stop placing limits on capacity changes (remove m_resize_limit)
+    x the m_vacuumize_counter could store the number of free bytes; then it's
+        easier to figure out whether a rearrange would make sense or not
+        (really? sounds a bit like overkill. - postpone)
+    x test fixed binary keys with large size (1024) - will the
+        file size explode because the capacity is wrong? 
+        -> the capacity is correct, and it's very low (14). is this intended?
+        => behavior is consistent with 2.1.6
     o when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
-    o the m_vacuumize_counter could store the number of free bytes; then it's
-        easier to figure out whether a rearrange would make sense or not
     o capacity: should track different stats for leaf and internal nodes!
-        (currently the stats are not used at all)
-    o new unittest for fixed binary keys with large size (1024) - will the
-        file size explode because the capacity is wrong? 
+        then use those stats when initializing the nodes
 
-    o should we place limits on changing the capacity?
-        - max. 4 times if it was initialized from scratch
-        - max. 2 times if it was initialized based on statistics
-        ?? but we cannot persist this...
-        -> is this really a good idea? IF the page can be resized
-            then we should do it, otherwise a split happens which is
-            always MORE expensive than resize()!
+    o check file sizes against 2.1.6
+        x ./ham_bench --recsize-fixed=0 --seed=1403079888
+            DEFAULT: VAR/PAX
+            was: 21168128
+            now: 16908288
+        x ./ham_bench --key=uint32 --recsize-fixed=0 --seed=1403079914
+            PAX: PAX/PAX
+            was: 5373952
+            now: 5373952
+        x ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
+            DEFAULT: VAR/VAR
+            was: 17154048
+            now: 15581184
+        o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
+                    --seed=1403080037
+            DEFAULT: PAX/VAR
+            was: 10715136
+            now: 15581184
 
-    o do we really need get_record_id/set_record_id? not convinced...
+==============================
+test fails:
+    ./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --erase-pct=15 --find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --duplicate=last --stop-ops=300000
+    -> then check monster4.lst
+    -> then add code from stash!
+==============================
+
+    o when allocating a DuplicateTable it's possible that the RecordList
+        has not enough room for the 64bit table id (i.e. if records are
+        fixed length size 0) -> make sure there's always some headroom!
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist, this will obsolete
         even more public functions (get_record_data, get_key_data...)
+    o do we really need get_record_id/set_record_id? not convinced...
+        (at least we do not need them on Layout level, but could supply
+            them in the BtreeNodeProxy)
     o then once more check if we can remove functions in the layout
 
     o rename "count" to "node_count", once more review and make sure that
@@ -683,8 +709,6 @@ o Refactorings for the Default layout with the following goals:
         common base class
         o or can we merge the two duplicate RecordLists? 
     
-    o deprecate ham_db_enumerate?
-
     o can the two btree formats (pax/default) be merged? if yes then they could
         be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
 
@@ -701,6 +725,8 @@ o Refactorings for the Default layout with the following goals:
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 
+    o check valgrind tests - there are memory leaks
+
 o the steps above will create an incompatible file format
     o increment file version
     o reserve space for other file format updates
@@ -711,24 +737,75 @@ o the steps above will create an incompatible file format
         . PAX Layout: can compress the flags for the DefaultRecordList
         . Default Layout: can compress the flags for the Duplicate*RecordList
 
+o remove ham_db_enumerate in favour of the hola functions
+    o also remove from java
+    o also remove from .NET
+    o also remove from erlang
+
 o ham/types.h: do not include winsock2.h because it can conflict with
     winsock.h in the user's application
 
 o need new API to retrieve the duplicate position of a cursor:
     ham_status_t ham_cursor_get_duplicate_position(ham_cursor_t *cursor,
                     ham_u32_t *position)
+    o also add to java
+    o also add to .NET
+    o also add to erlang
 
-. remove ham_db_enumerate; it will be replaced by hola
+o split cursor.cc in two files because gcc can run out of memory when compiling
 
-. remove support for big endian. better now than later, and this will get
+o collect/publish benchmark against leveldb (with and without SSD)
+    - each with 100k and 100m keys
+    o uint64, small records, random write
+    o uint64, small records, linear write
+    o uint64, small records, random read
+    o uint64, small records, linear read
+    o bin16, default records, random write (w/o compression)
+    o bin16, default records, linear write (w/o compression)
+    o bin16, default records, random read (w/o compression)
+    o bin16, default records, linear read (w/o compression)
+    o bin16, default records, random write (w/ compression)
+    o bin16, default records, linear write (w/ compression)
+    o bin16, default records, random read (w/ compression)
+    o bin16, default records, linear read (w/ compression)
+    o uint64, calculate sum()
+    o bin16, use count_if() of all keys with checksum % 10 == 0
+
+o documentation TODOs for 2.1.8
+    o fixed length keys: add big warning that this increases the
+        node fanout! (also for performance faq!)
+    o hola: add samples and documentation
+        o add samples to webpage
+        o tutorial
+    o FAQ: Why is the library size so big?
+
+------------- hamsterdb pro 2.1.8 ------------------------------------
+
+o adapt to the newest changes from 2.1.8
+
+. PRO: add avx support
+o PRO: add sse support for real64
+o PRO: add new compression library LZ4 (https://code.google.com/p/lz4/)
+
+o PRO: CRC32-checksums (as soon as the file format is updated)
+    o SSE2 has support for a CRC32 checksum calculation, or find a good
+        library
+    o how to store crc32 for multi-page blobs which do not have a header?
+
+o PRO: enable SIMD in the default layout if it uses the same KeyList as
+    in PAX *and* if record IDs are stored separately from the keys
+
+------------- hamsterdb 2.1.9 ----------------------------------------
+
+o remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
     o also from documentation, webpage
     o add documentation that database is host-endian
 
-. release-v2.pl: valgrind takes sooo long. should we use clang's
+o release-v2.pl: valgrind takes sooo long. should we use clang's
     AddressSanitizer instead?
 
-. can we add a generic macro like this:
+o can we add a generic macro like this:
     #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
     which can be used as an initializer:
     ham_key_t key = ham_make_key("hello", 5);
@@ -737,8 +814,6 @@ o need new API to retrieve the duplicate position of a cursor:
     o use in source
     o use in unittests
     o document
-
-o split cursor.cc in two files because gcc can run out of memory when compiling
 
 o delta updates managed in the BtreeNode
     the operations are attached to the node, but as soon as the node
@@ -782,24 +857,12 @@ o delta updates managed in the BtreeNode
         then disable them by default, unless Transactions are used (and unless
         bulk updates are used)
 
-o collect/publish benchmark against leveldb (with and without SSD)
-    - each with 100k and 100m keys
-    o uint64, small records, random write
-    o uint64, small records, linear write
-    o uint64, small records, random read
-    o uint64, small records, linear read
-    o bin16, default records, random write (w/o compression)
-    o bin16, default records, linear write (w/o compression)
-    o bin16, default records, random read (w/o compression)
-    o bin16, default records, linear read (w/o compression)
-    o bin16, default records, random write (w/ compression)
-    o bin16, default records, linear write (w/ compression)
-    o bin16, default records, random read (w/ compression)
-    o bin16, default records, linear read (w/ compression)
-    o uint64, calculate sum()
-    o bin16, use count_if() of all keys with checksum % 10 == 0
+o QuickCheck: create a new property for testing duplicates; the key is always
+    the same. The number of duplicate keys is tracked and periodically
+    checked with the API. A cursor can be used to remove a specific
+    duplicate, or to fetch a specific duplicate.
 
-. python wrapper: should be part of the sources; build for linux
+o python wrapper: should be part of the sources; build for linux
     and for windows
     o extend configure scripts
     o stage 1: 
@@ -811,17 +874,6 @@ o collect/publish benchmark against leveldb (with and without SSD)
         Cursor: begin, insert, find, erase, move, close
     o cover with unittests
     o need win32 build environment
-
-o documentation TODOs for 2.1.8
-    o hola: add samples and documentation
-        o add samples to webpage
-        o tutorial
-    o FAQ: Why is the library size so big?
-
-o QuickCheck: create a new property for testing duplicates; the key is always
-    the same. The number of duplicate keys is tracked and periodically
-    checked with the API. A cursor can be used to remove a specific
-    duplicate, or to fetch a specific duplicate.
 
 . hola - next steps
     o support java api
@@ -868,20 +920,7 @@ o QuickCheck: create a new property for testing duplicates; the key is always
         efforts/gains (will do the same for mysql, R and mongodb later); this
         task is not about writing code!
 
-------------- hamsterdb 2.1.8 ---------------------------------------
-
-o adapt to the newest changes from 2.1.8
-
-. PRO: add avx support
-o PRO: add sse support for real64
-o PRO: add new compression library LZ4 (https://code.google.com/p/lz4/)
-
-o PRO: CRC32-checksums (as soon as the file format is updated)
-    o SSE2 has support for a CRC32 checksum calculation, or find a good
-        library
-
-o PRO: enable SIMD in the default layout if it uses the same KeyList as
-    in PAX *and* if record IDs are stored separately from the keys
+------------- hamsterdb pro 2.1.9 ------------------------------------
 
 o PRO: bulk updates (really only for pro?)
     - require delta updates

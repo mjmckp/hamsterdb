@@ -1145,23 +1145,26 @@ class InlineRecordList
     // Erases a whole slot by shifting all larger records to the "left"
     void shrink_space(ham_u32_t slot, size_t count) {
       if (slot < count - 1)
-        memmove(&m_data[slot], &m_data[slot + 1],
-                      m_record_size * (count - slot - 1));
+        memmove(&m_data[m_record_size * slot],
+                        &m_data[m_record_size * (slot + 1)],
+                        m_record_size * (count - slot - 1));
     }
 
     // Creates space for one additional record
     void make_space(ham_u32_t slot, size_t node_count) {
       if (slot < node_count) {
-        memmove(&m_data[slot + 1], &m_data[slot],
-                       m_record_size * (node_count - slot));
+        memmove(&m_data[m_record_size * (slot + 1)],
+                        &m_data[m_record_size * slot],
+                        m_record_size * (node_count - slot));
       }
-      memset(&m_data[slot], 0, m_record_size);
+      memset(&m_data[m_record_size * slot], 0, m_record_size);
     }
 
     // Copies |count| records from this[sstart] to dest[dstart]
     void copy_to(ham_u32_t sstart, size_t node_count, InlineRecordList &dest,
                     size_t other_count, ham_u32_t dstart) {
-      memcpy(&dest.m_data[dstart], &m_data[sstart],
+      memcpy(&dest.m_data[m_record_size * dstart],
+                      &m_data[m_record_size * sstart],
                       m_record_size * (node_count - sstart));
     }
 

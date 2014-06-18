@@ -802,6 +802,10 @@ class UpfrontIndex
           // copy the chunk to the new slot
           set_chunk_size(slot, get_chunk_size(i));
           set_chunk_offset(slot, get_chunk_offset(i));
+          // update next_offset?
+          if (get_next_offset(node_count)
+                == get_chunk_offset(i) + get_chunk_size(i))
+            invalidate_next_offset();
           // remove from the freelist
           ham_u8_t *p = &m_data[kPayloadOffset + slot_size * i];
           memmove(p, p + slot_size, slot_size * (total_count - i - 1));
@@ -1209,6 +1213,7 @@ class VariableLengthKeyList
 
     // Overwrites the data of the key
     void set_key_data(ham_u32_t slot, const void *ptr, size_t size) {
+      ham_assert(m_index.get_chunk_size(slot) >= size);
       set_key_size(slot, (ham_u16_t)size);
       memcpy(get_key_data(slot), ptr, size);
     }
@@ -1256,6 +1261,9 @@ class VariableLengthKeyList
     // Inserts a key
     void insert(ham_u32_t slot, size_t node_count, const ham_key_t *key) {
       m_index.insert_slot(slot, node_count);
+
+      // now there's one additional slot
+      node_count++;
 
       // When inserting the data: always add 1 byte for key flags
       if (key->size > m_extkey_threshold) {
@@ -1795,7 +1803,12 @@ class DuplicateInlineRecordList : public DuplicateRecordList
             m_duptable_cache = new DuplicateTableCache();
           (*m_duptable_cache)[table_id] = dt;
 
-          // write the new record id
+          // write the id of the duplicate table
+          if (m_index.get_chunk_size(slot) < 8 + 1) {
+            m_index.allocate_space(m_node->get_count(), slot, 8 + 1);
+            chunk_offset = m_index.get_absolute_chunk_offset(slot);
+          }
+
           m_data[chunk_offset] |= BtreeRecord::kExtendedDuplicates;
           set_record_id(slot, table_id);
           set_inline_record_count(slot, 0);
@@ -1931,6 +1944,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
     // Sets a record id; only for internal nodes! therefore not allowed here
     void set_record_id(ham_u32_t slot, ham_u64_t id) {
+      ham_assert(m_index.get_chunk_size(slot) >= sizeof(id));
       *(ham_u64_t *)get_record_data(slot, 0) = id;
     }
 
@@ -2179,7 +2193,12 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
             m_duptable_cache = new DuplicateTableCache();
           (*m_duptable_cache)[table_id] = dt;
 
-          // write the new record id
+          // write the id of the duplicate table
+          if (m_index.get_chunk_size(slot) < 8 + 1) {
+            m_index.allocate_space(m_node->get_count(), slot, 8 + 1);
+            chunk_offset = m_index.get_absolute_chunk_offset(slot);
+          }
+
           m_data[chunk_offset] |= BtreeRecord::kExtendedDuplicates;
           set_record_id(slot, table_id);
           set_inline_record_count(slot, 0);
@@ -2448,7 +2467,7 @@ class DefaultNodeImpl
     DefaultNodeImpl(Page *page)
       : m_page(page), m_node(PBtreeNode::from_page(m_page)),
         m_keys(page->get_db()), m_records(page->get_db(), m_node),
-        m_resize_limit(0), m_capacity(0) {
+        m_capacity(0) {
       initialize();
     }
 
@@ -2888,9 +2907,6 @@ class DefaultNodeImpl
           m_capacity = usable_page_size
                             / (m_keys.get_full_key_size()
                                 + record_size);
-
-          // the default might not be precise and might be recalculated later
-          m_resize_limit = 3;
         }
 
         // persist the capacity
@@ -2929,13 +2945,6 @@ class DefaultNodeImpl
       ham_assert(!KeyList::kHasSequentialData
               || !RecordList::kHasSequentialData);
 
-#if 0
-      if (m_resize_limit == 0) {
-        ham_trace(("reached resize limit"));
-        return (false);
-      }
-#endif
-
 #ifdef HAM_DEBUG
       check_index_integrity(node_count);
 #endif
@@ -2972,8 +2981,7 @@ class DefaultNodeImpl
       // case 2: the KeyList has sequential data (PAX), the RecordList has
       // variable length entries
       else if (KeyList::kHasSequentialData) {
-        size_t record_range_size = m_records.get_full_range_size();
-        int unused = record_range_size
+        int unused = m_records.get_full_range_size()
                 - m_records.calculate_required_range_size(node_count,
                                 m_capacity);
         unused -= m_records.get_full_record_size();
@@ -3033,8 +3041,6 @@ class DefaultNodeImpl
       check_index_integrity(node_count);
 #endif
 
-      --m_resize_limit;
-
       // make sure that the page is flushed to disk
       m_page->set_dirty(true);
 
@@ -3057,17 +3063,8 @@ class DefaultNodeImpl
 
       // Check which list requires more space; if both are full then
       // fail immediately
-      if (keys_require_split && records_require_split) {
-        m_resize_limit = 0;
+      if (keys_require_split && records_require_split)
         return (false);
-      }
-
-#if 0
-      if (m_resize_limit == 0) {
-        ham_trace(("reached resize limit"));
-        return (false);
-      }
-#endif
 
       // shrink the capacity by 25% to generate free space
       size_t shrink_slots = (m_capacity - node_count) / 4;
@@ -3138,8 +3135,6 @@ class DefaultNodeImpl
       check_index_integrity(node_count);
 #endif
 
-      --m_resize_limit;
-
       // make sure that the page is flushed to disk
       m_page->set_dirty(true);
 
@@ -3178,9 +3173,6 @@ class DefaultNodeImpl
 
     // A memory arena for various tasks
     ByteArray m_arena;
-
-    // Allow the capacity to be recalculated later on
-    int m_resize_limit;
 
     // The current capacity of the node
     size_t m_capacity;
