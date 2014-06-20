@@ -201,8 +201,20 @@ class BtreeInsertAction
         node = m_btree->get_node_from_page(page);
       }
 
-      // we've reached the leaf
-      return (insert_in_leaf(page, m_key, 0));
+      // We've reached the leaf; it's still possible that we have to
+      // split the page, therefore this case has to be handled
+      ham_status_t st;
+      try {
+        st = insert_in_leaf(page, m_key, 0);
+      }
+      catch (Exception &ex) {
+        if (ex.code == HAM_LIMITS_REACHED) {
+          page = split_page(page, parent, m_key);
+          return (insert_in_leaf(page, m_key, 0));
+        }
+        throw ex;
+      }
+      return (st);
     }
 
     // Splits |page| and updates the |parent|. If |parent| is null then

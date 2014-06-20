@@ -645,40 +645,68 @@ o Refactorings for the Default layout with the following goals:
         file size explode because the capacity is wrong? 
         -> the capacity is correct, and it's very low (14). is this intended?
         => behavior is consistent with 2.1.6
-    o when appending a duplicate then currently the whole list is copied
+    x when appending a duplicate then currently the whole list is copied
         to new space, even if the current slot has enough space assigned,
         or if the size could be increased without problems
-    o capacity: should track different stats for leaf and internal nodes!
-        then use those stats when initializing the nodes
-
-    o check file sizes against 2.1.6
-        x ./ham_bench --recsize-fixed=0 --seed=1403079888
-            DEFAULT: VAR/PAX
-            was: 21168128
-            now: 16908288
-        x ./ham_bench --key=uint32 --recsize-fixed=0 --seed=1403079914
-            PAX: PAX/PAX
-            was: 5373952
-            now: 5373952
-        x ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
-            DEFAULT: VAR/VAR
-            was: 17154048
-            now: 15581184
-        o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
-                    --seed=1403080037
-            DEFAULT: PAX/VAR
-            was: 10715136
-            now: 15581184
-
-=======================
-./ham_bench --use-berkeleydb=true --reopen=true  --key=binary --erase-pct=15
---find-pct=15 --recsize-fixed=8 --recsize=8 --cache=104857600 --duplicate=last
-afterwards: see "#if 0" ni btree_impl_default.h
-=======================
-
-    o when allocating a DuplicateTable it's possible that the RecordList
+    x when allocating a DuplicateTable it's possible that the RecordList
         has not enough room for the 64bit table id (i.e. if records are
         fixed length size 0) -> make sure there's always some headroom!
+
+    o check file sizes against 2.1.6 and 2.1.7
+        x ./ham_bench --recsize-fixed=0 --seed=1403079888
+            DEFAULT: VAR/PAX
+            2.1.6: 32948224
+            2.1.7: 48349184
+            head:  32997376
+        x ./ham_bench --key=uint32 --recsize-fixed=0 --seed=1403079914
+            PAX: PAX/PAX
+            2.1.6: 21168128
+            2.1.7: 33128448
+            head:  16908288
+        x ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
+                     --seed=1403080037
+             DEFAULT: PAX/VAR
+            2.1.6: 10715136
+            2.1.7: 16023552 (w/ bugfix)
+            head:  15515648
+        x ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
+                    --seed=1403080037
+            DEFAULT: PAX/VAR
+            2.1.6: 15515648
+            2.1.7: 16646144
+            head:  16728064
+====================================
+        o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
+            DEFAULT: VAR/VAR
+            2.1.6: 17154048
+            2.1.7: 32784384
+         -> head:  48021504 !!!
+
+b btree_impl_default.h:2762
+
+split is now performed, but why? record range is only 35% utilized. key range
+is full. decrease_capacity is not called. increase_capacity does not have
+a positive effect. when called then decrease_capacity always returns false
+because the key range is large enough for new slots, but cannot fit
+additional data.
+
+m_capacity: 656
+node count: 441
+key range: 7004
+  keys.m_index.get_next_offset(1) = 4368
+  keys.m_index.get_absolute_offset(4368) = 7004
+record range: 9332
+  records.m_index.get_next_offset(1) = 441
+  records.m_index.get_absolute_offset(441) = 3077
+
+
+====================================
+
+    o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
+        -> keys not equal
+
+    o capacity: should track different stats for leaf and internal nodes!
+        then use those stats when initializing the nodes
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist, this will obsolete
@@ -687,6 +715,9 @@ afterwards: see "#if 0" ni btree_impl_default.h
         (at least we do not need them on Layout level, but could supply
             them in the BtreeNodeProxy)
     o then once more check if we can remove functions in the layout
+
+    o pax: a split should only happen if node_count == capacity, and not below!
+        (also for default, if there's enough space for the data)
 
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
@@ -713,6 +744,8 @@ afterwards: see "#if 0" ni btree_impl_default.h
 
     x could reduce library size a lot if the layout could deal with
         different page sizes (i.e. the offset type is chosen dynamically)
+
+    o new test: ./ham_bench --key=uint32 --recsize=1 --recsize-fixed=1 --duplicate=last
 
     o run performance tests
         there are several tweaks that can be performed:

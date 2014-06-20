@@ -723,6 +723,7 @@ class UpfrontIndex
 
     // Erases a slot at the position |slot|
     // |node_count| is the number of used slots (this is managed by the caller)
+    // TODO swap parameters
     void erase_slot(ham_u32_t slot, size_t node_count) {
       size_t slot_size = get_full_index_size();
       size_t total_count = node_count + get_freelist_count();
@@ -784,25 +785,17 @@ class UpfrontIndex
                     size_t num_bytes) {
       ham_assert(can_allocate_space(node_count, num_bytes, true));
 
-      // maybe the current slot is large enough?
-#if 0
-      if (get_chunk_size(slot) >= num_bytes)
-        return (get_chunk_offset(slot));
-#endif
-
       size_t next_offset = get_next_offset(node_count);
 
       // try to allocate space at the end of the node
       if (next_offset + num_bytes <= get_usable_data_size()) {
         // if this slot's data is at the very end then maybe it can be
         // resized without actually moving the data
-#if 0
         if (next_offset == get_chunk_offset(slot) + get_chunk_size(slot)) {
           set_next_offset(get_chunk_offset(slot) + num_bytes);
           set_chunk_size(slot, num_bytes);
           return (get_chunk_offset(slot));
         }
-#endif
         set_next_offset(next_offset + num_bytes);
         set_chunk_offset(slot, next_offset);
         set_chunk_size(slot, num_bytes);
@@ -815,12 +808,14 @@ class UpfrontIndex
       ham_u32_t total_count = node_count + get_freelist_count();
       for (ham_u32_t i = node_count; i < total_count; i++) {
         if (get_chunk_size(i) >= num_bytes) {
-          // copy the chunk to the new slot
-          set_chunk_size(slot, get_chunk_size(i));
-          set_chunk_offset(slot, get_chunk_offset(i));
           // update next_offset?
           if (next_offset == get_chunk_offset(i) + get_chunk_size(i))
             invalidate_next_offset();
+          else if (next_offset == get_chunk_offset(slot) + get_chunk_size(slot))
+            invalidate_next_offset();
+          // copy the chunk to the new slot
+          set_chunk_size(slot, get_chunk_size(i));
+          set_chunk_offset(slot, get_chunk_offset(i));
           // remove from the freelist
           ham_u8_t *p = &m_data[kPayloadOffset + slot_size * i];
           memmove(p, p + slot_size, slot_size * (total_count - i - 1));
@@ -1820,6 +1815,11 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
           // write the id of the duplicate table
           if (m_index.get_chunk_size(slot) < 8 + 1) {
+            m_index.erase_slot(slot, m_node->get_count());
+            // force a split in the caller if the duplicate table cannot
+            // be inserted
+            if (!m_index.can_allocate_space(m_node->get_count(), 8 + 1))
+              throw Exception(HAM_LIMITS_REACHED);
             m_index.allocate_space(m_node->get_count(), slot, 8 + 1);
             chunk_offset = m_index.get_absolute_chunk_offset(slot);
           }
@@ -1971,7 +1971,10 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
-      return (m_index.requires_split(node_count, get_full_record_size()));
+      // if the record is extremely small then make sure there's some headroom;
+      // this is required for DuplicateTable ids which are 64bit numbers
+      return (m_index.requires_split(node_count,
+                              std::min(get_full_record_size(), 10ul)));
     }
 
     // Calculates the required size for a range with the specified |capacity|
@@ -2264,6 +2267,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
       // Allocate new space for the duplicate table, if required
       if (current_size < required_size) {
         ham_u8_t *oldp = &m_data[chunk_offset];
+        m_index.erase_slot(slot, m_node->get_count());
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
                         required_size);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
@@ -2414,7 +2418,10 @@ write_record:
 
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
-      return (m_index.requires_split(node_count, get_full_record_size()));
+      // if the record is extremely small then make sure there's some headroom;
+      // this is required for DuplicateTable ids which are 64bit numbers
+      return (m_index.requires_split(node_count,
+                              std::min(get_full_record_size(), 10ul)));
     }
 
     // Calculates the required size for a range with the specified |capacity|
@@ -2905,9 +2912,6 @@ class DefaultNodeImpl
       else if ((m_node->get_count() == 0
                 && !(db->get_rt_flags() & HAM_READ_ONLY))) {
         size_t usable_page_size = get_usable_page_size();
-        size_t record_size = m_records.get_full_record_size();
-        if (db->get_rt_flags() & HAM_ENABLE_DUPLICATES)
-          record_size *= 2;
 
         // if yes then ask the btree for the default capacity (it keeps
         // track of the average capacity of older pages).
@@ -2921,7 +2925,7 @@ class DefaultNodeImpl
         if (m_capacity <= 10) {
           m_capacity = usable_page_size
                             / (m_keys.get_full_key_size()
-                                + record_size);
+                                + m_records.get_full_record_size());
         }
 
         // persist the capacity
@@ -2989,23 +2993,26 @@ class DefaultNodeImpl
 
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
-        size_t add_slots = (unused / item_size) / 2;
+        size_t add_slots = unused / item_size;
+        if (add_slots == 0)
+          return (false);
         new_capacity += add_slots;
         key_range_size -= add_slots * m_records.get_full_record_size();
       }
       // case 2: the KeyList has sequential data (PAX), the RecordList has
       // variable length entries
       else if (KeyList::kHasSequentialData) {
+        // Retrieve the size of the unused range in the RecordList, then
+        // increase capacity till this space is full
         int unused = m_records.get_full_range_size()
                 - m_records.calculate_required_range_size(node_count,
                                 m_capacity);
-        unused -= m_records.get_full_record_size();
-        if (unused < 0)
-          return (false);
 
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
-        size_t add_slots = (unused / item_size) / 2;
+        size_t add_slots = unused / item_size;
+        if (add_slots == 0)
+          return (false);
         new_capacity += add_slots;
         key_range_size += add_slots * m_keys.get_full_key_size();
       }
@@ -3016,18 +3023,17 @@ class DefaultNodeImpl
         int unused_record_size = record_range_size
                 - m_records.calculate_required_range_size(node_count,
                                 m_capacity);
-        unused_record_size -= m_records.get_full_record_size();
         int unused_key_size = key_range_size
                 - m_keys.calculate_required_range_size(node_count,
                                 m_capacity);
-        unused_key_size -= m_keys.get_full_key_size(key);
 
         size_t unused_total = unused_key_size + unused_record_size;
         size_t item_size = m_keys.get_full_key_size()
                                 + m_records.get_full_record_size();
-        size_t add_slots = (unused_total / item_size) / 2;
+        size_t add_slots = unused_total / item_size;
+        if (add_slots == 0)
+          return (false);
         new_capacity += add_slots;
-
         key_range_size = m_keys.calculate_required_range_size(node_count,
                                 new_capacity);
       }
