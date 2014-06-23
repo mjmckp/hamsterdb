@@ -655,7 +655,7 @@ o Refactorings for the Default layout with the following goals:
     o check file sizes against 2.1.6 and 2.1.7
         x ./ham_bench --recsize-fixed=0 --seed=1403079888
             DEFAULT: VAR/PAX
-            2.1.6: 32948224
+            2.1.6: 21168128
             2.1.7: 33177600
             head:  16924672
         x ./ham_bench --key=uint32 --recsize-fixed=0 --seed=1403079914
@@ -663,32 +663,44 @@ o Refactorings for the Default layout with the following goals:
             2.1.6: 5373952
             2.1.7: 5373952
             head:  5373952
-
         x ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
             DEFAULT: VAR/VAR
             2.1.6: 17154048
             2.1.7: 32784384
-         -> head:  26296320
-
-===========================================
-the following tests are crashing
-
-        o ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
+            head:  26296320
+        x ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
+                     --seed=1403080037
+             DEFAULT: PAX/VAR
+            2.1.6: 10715136
+            2.1.7: 10715136
+            head:  15581184
+        x ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
                     --seed=1403080037
             DEFAULT: PAX/VAR
             2.1.6: 15515648
             2.1.7: 15515648
             head:  16728064
-        o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
-                     --seed=1403080037
-             DEFAULT: PAX/VAR
-            2.1.6: 10715136
-            2.1.7: 10715136 (w/ bugfix)
-         -> head:  15515648
-===========================================
+
+    o unify increase_capacity() and decrease_capacity()
+        adjust the capacity (this automatically results
+            in adjusting the data area as well)
+            -> first adjust the capacity
+            -> THEN adjust the data area
+          calculate new capacity
+              (either node_count + 1 (or more, if possible)
+                  or substract (m_capacity - node_count) / 4
+          calculate new key_range_size
+          change capacity of the two lists
+        -> make sure that the key range size is deterministic, i.e. aligned
+            to the (fixed length) key size; otherwise it cannot be
+            figured out properly when loading the page from disk
 
     o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
         -> keys not equal when running against bdb
+
+    o make sure that a split ONLY happens if node_count == capacity,
+        and not if node_count == capacity - 1 etc
+        (or if the data range is full)
 
     o capacity: should track different stats for leaf and internal nodes!
         then use those stats when initializing the nodes
