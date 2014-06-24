@@ -657,7 +657,7 @@ o Refactorings for the Default layout with the following goals:
             DEFAULT: VAR/PAX
             2.1.6: 21168128
             2.1.7: 33177600
-            head:  16924672
+            head:  16908288
         x ./ham_bench --key=uint32 --recsize-fixed=0 --seed=1403079914
             PAX: PAX/PAX
             2.1.6: 5373952
@@ -708,10 +708,12 @@ o Refactorings for the Default layout with the following goals:
 
     x capacity: should track different stats for leaf and internal nodes!
         then use those stats when initializing the nodes
-    o get rid of enumerate() - it uses get_key_data() without even checking
+    x get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
     o move print() down to the layout/keylist, this will obsolete
         even more public functions (get_record_data, get_key_data...)
+        get_key_data()
+        get_key_size()
     o do we really need get_record_id/set_record_id? not convinced...
         (at least we do not need them on Layout level, but could supply
             them in the BtreeNodeProxy)
@@ -762,11 +764,6 @@ o the steps above will create an incompatible file format
         o reserve CRC32 for each page
         . PAX Layout: can compress the flags for the DefaultRecordList
         . Default Layout: can compress the flags for the Duplicate*RecordList
-
-o remove ham_db_enumerate in favour of the hola functions
-    o also remove from java
-    o also remove from .NET
-    o also remove from erlang
 
 o ham/types.h: do not include winsock2.h because it can conflict with
     winsock.h in the user's application

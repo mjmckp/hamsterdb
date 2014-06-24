@@ -121,10 +121,6 @@ class BtreeNodeProxy
     // not. Called by ham_db_check_integrity().
     virtual void check_integrity() const = 0;
 
-    // Iterates all keys, calls the |visitor| on each. Aborts if the
-    // |visitor| returns false.
-    virtual void enumerate(BtreeVisitor &visitor) = 0;
-
     // Iterates all keys, calls the |visitor| on each
     virtual void scan(ScanVisitor *visitor, ham_u32_t start, bool distinct) = 0;
 
@@ -376,17 +372,6 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
     // Checks the integrity of the node
     virtual void check_integrity() const {
       m_impl.check_integrity();
-    }
-
-    // Iterates all keys, calls the |visitor| on each. Aborts if the
-    // |visitor| returns false
-    virtual void enumerate(BtreeVisitor &visitor) {
-      ham_u32_t count = get_count();
-      for (ham_u32_t i = 0; i < count; i++) {
-        if (!visitor(this, m_impl.get_key_data(i), 0,
-                        m_impl.get_key_size(i), 0))
-          break;
-      }
     }
 
     // Iterates all keys, calls the |visitor| on each
