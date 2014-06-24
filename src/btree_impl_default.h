@@ -636,7 +636,7 @@ class UpfrontIndex
       }
       m_data = new_data_ptr;
       m_capacity = new_capacity;
-      // TODO rein oder raus? -> invalidate_next_offset();
+      invalidate_next_offset(); // TODO Why??
       set_full_range_size(full_range_size_bytes);
     }
 
@@ -716,10 +716,20 @@ class UpfrontIndex
       if (total_count > 0 && slot < total_count) {
         // create a gap in the index
         memmove(p + slot_size, p, slot_size * (total_count - slot));
-      }
+     }
 
       // now fill the gap
       memset(p, 0, slot_size);
+    }
+
+    // Adds a chunk to the freelist
+    void add_to_freelist(size_t node_count, ham_u32_t offset, ham_u32_t size) {
+      size_t total_count = node_count + get_freelist_count();
+      if (total_count < m_capacity) {
+        set_freelist_count(get_freelist_count() + 1);
+        set_chunk_size(total_count, size);
+        set_chunk_offset(total_count, offset);
+      }
     }
 
     // Erases a slot at the position |slot|
@@ -856,15 +866,15 @@ class UpfrontIndex
         throw Exception(HAM_INTEGRITY_VIOLATED);
       }
 
-      RangeVec ranges;
-      ranges.reserve(total_count);
+      //RangeVec ranges;
+      //ranges.reserve(total_count);
       ham_u32_t next_offset = 0;
       for (ham_u32_t i = 0; i < total_count; i++) {
         Range range = std::make_pair(get_chunk_offset(i), get_chunk_size(i));
         ham_u32_t next = range.first + range.second;
         if (next >= next_offset)
           next_offset = next;
-        ranges.push_back(range);
+        //ranges.push_back(range);
       }
 
 #if 0
@@ -881,6 +891,7 @@ class UpfrontIndex
         }
       }
 #endif
+
       if (next_offset != get_next_offset(node_count)) {
         ham_trace(("integrity violated: next offset %d, cached offset %d",
                     next_offset, get_next_offset(node_count)));
@@ -1822,12 +1833,13 @@ class DuplicateInlineRecordList : public DuplicateRecordList
 
           // write the id of the duplicate table
           if (m_index.get_chunk_size(slot) < 8 + 1) {
-            m_index.erase_slot(slot, m_node->get_count());
+            // do not erase the slot because it occupies so little space
+            size_t node_count = m_node->get_count();
             // force a split in the caller if the duplicate table cannot
             // be inserted
-            if (!m_index.can_allocate_space(m_node->get_count(), 8 + 1))
+            if (!m_index.can_allocate_space(node_count, 8 + 1))
               throw Exception(HAM_LIMITS_REACHED);
-            m_index.allocate_space(m_node->get_count(), slot, 8 + 1);
+            m_index.allocate_space(node_count, slot, 8 + 1);
             chunk_offset = m_index.get_absolute_chunk_offset(slot);
           }
 
@@ -1836,7 +1848,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
           set_inline_record_count(slot, 0);
 
           // TODO merge those three calls; only call invalidate_next_offset()
-          // if the next offset is now invalid 
+          // if the next offset is now invalid  (todo are they necessary at all?)
           m_index.set_chunk_size(slot, 8 + 1);
           m_index.increase_vacuumize_counter();
           m_index.invalidate_next_offset();
@@ -1869,11 +1881,16 @@ class DuplicateInlineRecordList : public DuplicateRecordList
       // Allocate new space for the duplicate table, if required
       if (current_size < required_size) {
         ham_u8_t *oldp = &m_data[chunk_offset];
-        chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
-                        required_size);
-        chunk_offset = m_index.get_absolute_offset(chunk_offset);
+        ham_u32_t old_chunk_size = m_index.get_chunk_size(slot);
+        ham_u32_t old_chunk_offset = m_index.get_chunk_offset(slot);
+        ham_u32_t new_chunk_offset = m_index.allocate_space(m_node->get_count(),
+                        slot, required_size);
+        chunk_offset = m_index.get_absolute_offset(new_chunk_offset);
         if (current_size > 0)
           memmove(&m_data[chunk_offset], oldp, current_size);
+        if (old_chunk_offset != new_chunk_offset)
+          m_index.add_to_freelist(m_node->get_count(), old_chunk_offset,
+                          old_chunk_size);
       }
 
       // adjust flags
@@ -2222,6 +2239,8 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
 
           // write the id of the duplicate table
           if (m_index.get_chunk_size(slot) < 8 + 1) {
+            // do not erase the slot because it obviously occupies so
+            // little space
             m_index.allocate_space(m_node->get_count(), slot, 8 + 1);
             chunk_offset = m_index.get_absolute_chunk_offset(slot);
           }
@@ -2276,12 +2295,16 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
       // Allocate new space for the duplicate table, if required
       if (current_size < required_size) {
         ham_u8_t *oldp = &m_data[chunk_offset];
-        m_index.erase_slot(slot, m_node->get_count());
-        chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
-                        required_size);
-        chunk_offset = m_index.get_absolute_offset(chunk_offset);
+        ham_u32_t old_chunk_size = m_index.get_chunk_size(slot);
+        ham_u32_t old_chunk_offset = m_index.get_chunk_offset(slot);
+        ham_u32_t new_chunk_offset = m_index.allocate_space(m_node->get_count(),
+                        slot, required_size);
+        chunk_offset = m_index.get_absolute_offset(new_chunk_offset);
         if (current_size > 0)
           memmove(&m_data[chunk_offset], oldp, current_size);
+        if (old_chunk_offset != new_chunk_offset)
+          m_index.add_to_freelist(m_node->get_count(), old_chunk_offset,
+                          old_chunk_size);
       }
 
       // adjust flags
@@ -2679,9 +2702,6 @@ class DefaultNodeImpl
     void set_record(ham_u32_t slot, ham_record_t *record,
                     ham_u32_t duplicate_index, ham_u32_t flags,
                     ham_u32_t *new_duplicate_index) {
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
       // automatically overwrite an existing key unless this is a
       // duplicate operation
       if ((flags & (HAM_DUPLICATE
@@ -2758,27 +2778,6 @@ class DefaultNodeImpl
       bool keys_require_split = m_keys.requires_split(node_count, key);
       bool records_require_split = m_records.requires_split(node_count);
       if (keys_require_split || records_require_split) {
-#if 0
-        // Increase the node capacity
-        if (node_count >= m_capacity - 1) {
-          if (increase_capacity(key)) {
-#ifdef HAM_DEBUG
-            check_index_integrity(node_count);
-#endif
-            return (false);
-          }
-        }
-        else {
-          // otherwise decrease capacity (to increase the data size)
-          if (decrease_capacity(key, keys_require_split,
-                                  records_require_split)) {
-#ifdef HAM_DEBUG
-            check_index_integrity(node_count);
-#endif
-            return (false);
-          }
-        }
-#endif
         if (adjust_capacity(key, keys_require_split, records_require_split)) {
 #ifdef HAM_DEBUG
           check_index_integrity(node_count);
@@ -2793,9 +2792,13 @@ class DefaultNodeImpl
         // still here? then there's no way to avoid the split
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
         if (node_count >= m_capacity - 1)
-          bi->get_statistics()->set_page_capacity(m_capacity * 1.5);
+          bi->get_statistics()->set_page_capacity(m_node->is_leaf(),
+                          m_capacity * 1.5);
         else
-          bi->get_statistics()->set_page_capacity(node_count);
+          bi->get_statistics()->set_page_capacity(m_node->is_leaf(),
+                          node_count);
+        bi->get_statistics()->set_keylist_range_size(m_node->is_leaf(),
+                        m_keys.get_full_range_size());
         return (true);
       }
 
@@ -2871,18 +2874,12 @@ class DefaultNodeImpl
     // Returns a record id
     ham_u64_t get_record_id(ham_u32_t slot,
                     ham_u32_t duplicate_index = 0) const {
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
       return (m_records.get_record_id(slot, duplicate_index));
     }
 
     // Sets a record id; only for internal nodes!
     void set_record_id(ham_u32_t slot, ham_u64_t ptr) {
       m_records.set_record_id(slot, ptr);
-#ifdef HAM_DEBUG
-      check_index_integrity(m_node->get_count());
-#endif
     }
 
     // Returns the key's flags
@@ -2940,21 +2937,42 @@ class DefaultNodeImpl
       // initialize a new page from scratch
       else if ((m_node->get_count() == 0
                 && !(db->get_rt_flags() & HAM_READ_ONLY))) {
+        size_t key_range_size;
+        size_t record_range_size;
         size_t usable_page_size = get_usable_page_size();
 
         // if yes then ask the btree for the default capacity (it keeps
         // track of the average capacity of older pages).
-        // TODO
-        m_capacity = 0;// db->get_btree_index()->get_statistics()->get_default_page_capacity();
+        BtreeStatistics *bstats = db->get_btree_index()->get_statistics();
+        m_capacity = bstats->get_page_capacity(m_node->is_leaf());
+        key_range_size = bstats->get_keylist_range_size(m_node->is_leaf());
 
         // no data so far? then come up with a good default
-        //
-        // TODO make sure there's a minimum capacity available; remove
-        // this as soon as we can resize
-        if (m_capacity <= 10) {
+        if (m_capacity == 0) {
           m_capacity = usable_page_size
                             / (m_keys.get_full_key_size()
                                 + m_records.get_full_record_size());
+
+          // calculate the sizes of the KeyList and RecordList
+          if (KeyList::kHasSequentialData) {
+            key_range_size = m_keys.get_full_key_size() * m_capacity;
+            record_range_size = usable_page_size - key_range_size;
+          }
+          else if (RecordList::kHasSequentialData) {
+            record_range_size = m_records.get_full_record_size() * m_capacity;
+            key_range_size = usable_page_size - record_range_size;
+          }
+          else {
+            key_range_size = m_keys.get_full_key_size() * m_capacity;
+            record_range_size = m_records.get_full_record_size() * m_capacity;
+            if (key_range_size + record_range_size > usable_page_size) {
+              key_range_size = usable_page_size / 2;
+              record_range_size = usable_page_size - key_range_size;
+            }
+          }
+        }
+        else {
+          record_range_size = usable_page_size - key_range_size;
         }
 
         // persist the capacity
@@ -2962,12 +2980,9 @@ class DefaultNodeImpl
         *(ham_u32_t *)p = m_capacity;
         p += sizeof(ham_u32_t);
 
-        // create the KeyList and RecordList
-        size_t key_range_size = m_capacity * m_keys.get_full_key_size();
+        // and create the lists
         m_keys.create(p, key_range_size, m_capacity);
-        m_records.create(p + key_range_size,
-                        usable_page_size - key_range_size,
-                        m_capacity);
+        m_records.create(p + key_range_size, record_range_size, m_capacity);
       }
       // open a page; read initialization parameters from persisted storage
       else {
@@ -2995,10 +3010,6 @@ class DefaultNodeImpl
       ham_assert(!KeyList::kHasSequentialData
               || !RecordList::kHasSequentialData);
 
-#ifdef HAM_DEBUG
-      check_index_integrity(node_count);
-#endif
-
       // make sure that both lists are packed
       m_keys.vacuumize(node_count, true);
       m_records.vacuumize(node_count, true);
@@ -3008,22 +3019,45 @@ class DefaultNodeImpl
 
       // do we have to increase the capacity?
       if (node_count == m_capacity) {
-        ham_trace(("increasing capacity"));
         new_capacity++;
-        key_range_size = m_keys.calculate_required_range_size(node_count,
+
+        if (KeyList::kHasSequentialData)
+          key_range_size = m_keys.calculate_required_range_size(node_count,
+                                    new_capacity);
+        else
+          key_range_size = m_keys.calculate_required_range_size(node_count,
                                     m_capacity)
                             + m_keys.get_full_key_size(key);
       }
+      // do we have to decrease the capacity in order to free space for the
+      // data areas?
       else {
-        // TODO
+        size_t shrink_slots = (m_capacity - node_count) / 2;
+        if (shrink_slots == 0)
+          shrink_slots = 1;
+        new_capacity -= shrink_slots;
+        if (new_capacity <= node_count)
+          return (false);
+
+        if (KeyList::kHasSequentialData)
+          key_range_size = m_keys.calculate_required_range_size(node_count,
+                                    new_capacity);
+        else
+          key_range_size = m_keys.calculate_required_range_size(node_count,
+                                    new_capacity - 1)
+                            + m_keys.get_full_key_size(key);
       }
 
-      // check if the required record space is large enough
-      // TODO
+      size_t usable_page_size = get_usable_page_size();
+
+      // Check if the required record space is large enough
+      // TODO only leave headroom if duplicates are enabled!
+      if (key_range_size + m_records.calculate_required_range_size(node_count,
+                              new_capacity + 1) + 10 > usable_page_size)
+        return (false);
 
       // Get a pointer to the data area
       ham_u8_t *p = m_node->get_data() + sizeof(ham_u32_t);
-      size_t usable_page_size = get_usable_page_size();
 
       // Now change the capacity in both lists. If the KeyList grows then
       // start with resizing the RecordList, otherwise the moved KeyList
@@ -3057,210 +3091,6 @@ class DefaultNodeImpl
                 && !m_keys.requires_split(node_count, key));
     }
 
-    // Increases the node capacity; returns true if the capacity was
-    // increased AND |key| (and an additional record) fits into the node;
-    // otherwise false. If false then the caller can perform a split.
-    bool increase_capacity(const ham_key_t *key) {
-      size_t node_count = m_node->get_count();
-
-      // One of the lists must be resizable (otherwise they would be managed
-      // by the PaxLayout)
-      ham_assert(!KeyList::kHasSequentialData
-              || !RecordList::kHasSequentialData);
-
-#ifdef HAM_DEBUG
-      check_index_integrity(node_count);
-#endif
-
-      // make sure that both lists are packed
-      m_keys.vacuumize(node_count, true);
-      m_records.vacuumize(node_count, true);
-
-      size_t new_capacity = m_capacity;
-      size_t key_range_size = m_keys.get_full_range_size();
-      size_t usable_page_size = get_usable_page_size();
-
-      // get a pointer to the data area
-      ham_u8_t *p = m_node->get_data() + sizeof(ham_u32_t);
-
-      // case 1: the RecordList has sequential data (PAX), the KeyList has
-      // variable length entries. Increase the capacity of both lists by
-      // reducing the data area of the KeyList.
-      if (RecordList::kHasSequentialData) {
-        // Figure out how much unused space is in the KeyList; then check
-        // if it can be reduced while still hold enough room for the new |key|
-        int unused = key_range_size - m_keys.calculate_required_range_size(
-                                        node_count, m_capacity);
-        unused -= m_keys.get_full_key_size(key);
-        if (unused < 0)
-          return (false);
-
-        size_t item_size = m_keys.get_full_key_size()
-                                + m_records.get_full_record_size();
-        size_t add_slots = unused / item_size;
-        if (add_slots == 0)
-          return (false);
-        new_capacity += add_slots;
-        key_range_size -= add_slots * m_records.get_full_record_size();
-      }
-      // case 2: the KeyList has sequential data (PAX), the RecordList has
-      // variable length entries
-      else if (KeyList::kHasSequentialData) {
-        // Retrieve the size of the unused range in the RecordList, then
-        // increase capacity till this space is full
-        int unused = m_records.get_full_range_size()
-                - m_records.calculate_required_range_size(node_count,
-                                m_capacity);
-
-        size_t item_size = m_keys.get_full_key_size()
-                                + m_records.get_full_record_size();
-        size_t add_slots = unused / item_size;
-        if (add_slots == 0)
-          return (false);
-        new_capacity += add_slots;
-        key_range_size += add_slots * m_keys.get_full_key_size();
-      }
-      // case 3: both lists have variable length items
-      else {
-        size_t record_range_size = m_records.get_full_range_size();
-        // calculate unused bytes in both ranges
-        int unused_record_size = record_range_size
-                - m_records.calculate_required_range_size(node_count,
-                                m_capacity);
-        int unused_key_size = key_range_size
-                - m_keys.calculate_required_range_size(node_count,
-                                m_capacity);
-
-        int unused_total = unused_key_size + unused_record_size
-                                - m_keys.get_full_key_size(key)
-                                - m_records.get_full_record_size();
-        if (unused_total < 0)
-          return (false);
-        size_t item_size = m_keys.get_full_key_size()
-                                + m_records.get_full_record_size();
-        size_t add_slots = (unused_total / item_size) / 2;
-        if (add_slots == 0)
-          return (false);
-        new_capacity += add_slots;
-        key_range_size = m_keys.calculate_required_range_size(node_count,
-                                    new_capacity)
-                                + m_keys.get_full_key_size(key);
-      }
-
-      if (key_range_size > m_keys.get_full_range_size()) {
-        m_records.change_capacity(node_count, m_capacity, new_capacity,
-                        p + key_range_size,
-                        usable_page_size - key_range_size);
-        m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-      }
-      else {
-        m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-        m_records.change_capacity(node_count, m_capacity, new_capacity,
-                        p + key_range_size,
-                        usable_page_size - key_range_size);
-      }
-      
-      // persist the new capacity
-      p = m_node->get_data();
-      *(ham_u32_t *)p = new_capacity;
-      m_capacity = new_capacity;
-
-      // make sure that the page is flushed to disk
-      m_page->set_dirty(true);
-
-      // finally check if the new space is sufficient for the new key
-      return (!m_records.requires_split(node_count)
-                && !m_keys.requires_split(node_count, key));
-    }
-
-    // Tries to resize the node to make room for |key| (and one additional
-    // record). Returns true if resize was successfull and the key and a
-    // record will fit
-    bool decrease_capacity(const ham_key_t *key, bool keys_require_split,
-            bool records_require_split) {
-      size_t node_count = m_node->get_count();
-
-      // One of the lists must be resizable (otherwise they would be managed
-      // by the PaxLayout)
-      ham_assert(!KeyList::kHasSequentialData
-              || !RecordList::kHasSequentialData);
-
-      // Check which list requires more space; if both are full then
-      // fail immediately
-      if (keys_require_split && records_require_split)
-        return (false);
-
-      // shrink the capacity by 25% to generate free space
-      size_t shrink_slots = (m_capacity - node_count) / 4;
-
-#ifdef HAM_DEBUG
-      check_index_integrity(node_count);
-#endif
-
-      size_t new_capacity = m_capacity - shrink_slots;
-      size_t usable_page_size = get_usable_page_size();
-
-      // get a pointer to the data area
-      ham_u8_t *p = m_node->get_data() + sizeof(ham_u32_t);
-
-      // make sure that both lists are packed
-      m_keys.vacuumize(node_count, true);
-      m_records.vacuumize(node_count, true);
-
-      // calculate unused space, distribute evenly among both lists
-      size_t key_range_size = m_keys.calculate_required_range_size(
-                                    node_count, new_capacity)
-                                + m_keys.get_full_key_size(key);
-      size_t record_range_size = m_records.calculate_required_range_size(
-                                    node_count, new_capacity)
-                                + m_records.get_full_record_size();
-
-      int unused_total = usable_page_size
-                                    - key_range_size
-                                    - record_range_size;
-      if (unused_total < 0)
-        return (false);
-
-      size_t item_size = m_keys.get_full_key_size()
-                              + m_records.get_full_record_size();
-      size_t add_slots = (unused_total / item_size) / 2;
-      if (add_slots == 0)
-        return (false);
-      key_range_size += add_slots * m_keys.get_full_key_size();
-
-      ham_assert(usable_page_size - key_range_size >= record_range_size);
-
-      // now change the capacity
-      if (key_range_size > m_keys.get_full_range_size()) {
-        m_records.change_capacity(node_count, m_capacity, new_capacity,
-                        p + key_range_size,
-                        usable_page_size - key_range_size);
-        m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-      }
-      else {
-        m_keys.change_capacity(node_count, m_capacity, new_capacity,
-                        p, key_range_size);
-        m_records.change_capacity(node_count, m_capacity, new_capacity,
-                        p + key_range_size,
-                        usable_page_size - key_range_size);
-      }
-
-      // persist the new capacity
-      p = m_node->get_data();
-      *(ham_u32_t *)p = new_capacity;
-      m_capacity = new_capacity;
-
-      // make sure that the page is flushed to disk
-      m_page->set_dirty(true);
-
-      // finally check if the new space is sufficient for the new key
-      return (!m_records.requires_split(node_count)
-                && !m_keys.requires_split(node_count, key));
-    }
-
     // Checks the integrity of the key- and record-ranges. Throws an exception
     // if there's a problem.
     void check_index_integrity(size_t node_count) const {
@@ -3273,7 +3103,8 @@ class DefaultNodeImpl
     size_t get_usable_page_size() const {
       return (m_page->get_db()->get_local_env()->get_usable_page_size()
                     - kPayloadOffset
-                    - PBtreeNode::get_entry_offset());
+                    - PBtreeNode::get_entry_offset()
+                    - sizeof(ham_u32_t));
     }
 
 

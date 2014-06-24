@@ -652,7 +652,7 @@ o Refactorings for the Default layout with the following goals:
         has not enough room for the 64bit table id (i.e. if records are
         fixed length size 0) -> make sure there's always some headroom!
 
-    o check file sizes against 2.1.6 and 2.1.7
+    x check file sizes against 2.1.6 and 2.1.7
         x ./ham_bench --recsize-fixed=0 --seed=1403079888
             DEFAULT: VAR/PAX
             2.1.6: 21168128
@@ -662,12 +662,12 @@ o Refactorings for the Default layout with the following goals:
             PAX: PAX/PAX
             2.1.6: 5373952
             2.1.7: 5373952
-            head:  5373952
+            head:  5423104
         x ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
             DEFAULT: VAR/VAR
             2.1.6: 17154048
             2.1.7: 32784384
-            head:  26296320
+            head:  26509312
         x ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
                      --seed=1403080037
              DEFAULT: PAX/VAR
@@ -681,7 +681,7 @@ o Refactorings for the Default layout with the following goals:
             2.1.7: 15515648
             head:  16728064
 
-    o unify increase_capacity() and decrease_capacity()
+    x unify increase_capacity() and decrease_capacity()
         adjust the capacity (this automatically results
             in adjusting the data area as well)
             -> first adjust the capacity
@@ -695,14 +695,18 @@ o Refactorings for the Default layout with the following goals:
             to the (fixed length) key size; otherwise it cannot be
             figured out properly when loading the page from disk
 
-    o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
-        -> keys not equal when running against bdb
-
-    o make sure that a split ONLY happens if node_count == capacity,
+    x make sure that a split ONLY happens if node_count == capacity,
         and not if node_count == capacity - 1 etc
         (or if the data range is full)
 
-    o capacity: should track different stats for leaf and internal nodes!
+    x unittests are failing
+        x BtreeDefault/randomEraseMergeDuplicateTest
+        x BtreeInsert/defaultPivotTest
+        x BtreeInsert/defaultLatePivotTest
+        x BtreeInsert/sequentialInsertPivotTest
+        x BtreeKey/eraseDuplicateRecord
+
+    x capacity: should track different stats for leaf and internal nodes!
         then use those stats when initializing the nodes
     o get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
@@ -711,6 +715,7 @@ o Refactorings for the Default layout with the following goals:
     o do we really need get_record_id/set_record_id? not convinced...
         (at least we do not need them on Layout level, but could supply
             them in the BtreeNodeProxy)
+        -> if not, do we need the Internal layouts?
     o then once more check if we can remove functions in the layout
 
     o rename "count" to "node_count", once more review and make sure that
@@ -793,6 +798,7 @@ o collect/publish benchmark against leveldb (with and without SSD)
     o bin16, use count_if() of all keys with checksum % 10 == 0
 
 o documentation TODOs for 2.1.8
+    o remove endian agnosticitiy (sp??)
     o fixed length keys: add big warning that this increases the
         node fanout! (also for performance faq!)
     o hola: add samples and documentation
@@ -817,6 +823,12 @@ o PRO: enable SIMD in the default layout if it uses the same KeyList as
     in PAX *and* if record IDs are stored separately from the keys
 
 ------------- hamsterdb 2.1.9 ----------------------------------------
+
+o should we have a separate "recsize == 0" RecordList for duplicates?
+    they could only store the duplicate count (but should be able to deal
+    with duplicates that are > 256!)
+
+o duplicate table: check for overflow of the capacity/duplicate counter
 
 o remove support for big endian. better now than later, and this will get
     rid of a lot of complexities
@@ -943,7 +955,7 @@ o python wrapper: should be part of the sources; build for linux
 
 ------------- hamsterdb pro 2.1.9 ------------------------------------
 
-o PRO: bulk updates (really only for pro?)
+o PRO: bulk updates
     - require delta updates
     - give users API to allocate memory for keys/records
     - if user says that data is already sorted then do not re-sort, but

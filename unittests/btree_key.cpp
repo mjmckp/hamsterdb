@@ -412,7 +412,7 @@ struct BtreeKeyFixture {
     REQUIRE((ham_u64_t)0 == node->get_record_id(0));
   }
 
-  void eraseDuplicateRecordTest() {
+  void eraseDuplicateRecordTest1() {
     BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert empty key, then a duplicate; delete both */
@@ -421,6 +421,10 @@ struct BtreeKeyFixture {
     checkDupe(0, 0, 0);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
+  }
+
+  void eraseDuplicateRecordTest2() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert tiny key, then a duplicate; delete both */
     prepareTiny("1234", 4);
@@ -428,6 +432,10 @@ struct BtreeKeyFixture {
     checkDupe(0, "1234", 4);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
+  }
+
+  void eraseDuplicateRecordTest3() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert small key, then a duplicate; delete both */
     prepareSmall("12345678");
@@ -435,6 +443,10 @@ struct BtreeKeyFixture {
     checkDupe(0, "12345678", 8);
     checkDupe(1, "abc4567812345678", 16);
     node->erase_record(0, 0, true, 0);
+  }
+
+  void eraseDuplicateRecordTest4() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert normal key, then a duplicate; delete both */
     prepareNormal("1234123456785678", 16);
@@ -444,7 +456,7 @@ struct BtreeKeyFixture {
     node->erase_record(0, 0, true, 0);
   }
 
-  void eraseAllDuplicateRecordTest() {
+  void eraseAllDuplicateRecordTest1() {
     BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert empty key, then a duplicate; delete both at once */
@@ -457,6 +469,10 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "abc4567812345678", 16);
     node->erase_record(0, 0, false, 0);
+  }
+
+  void eraseAllDuplicateRecordTest2() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert tiny key, then a duplicate; delete both */
     prepareTiny("1234", 4);
@@ -467,6 +483,10 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "1234", 4);
     node->erase_record(0, 0, false, 0);
+  }
+
+  void eraseAllDuplicateRecordTest3() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert small key, then a duplicate; delete both at once */
     prepareSmall("12345678");
@@ -478,6 +498,10 @@ struct BtreeKeyFixture {
     REQUIRE(node->get_record_count(0) == 1);
     checkDupe(0, "abc4567812345678", 16);
     node->erase_record(0, 0, false, 0);
+  }
+
+  void eraseAllDuplicateRecordTest4() {
+    BtreeNodeProxy *node = m_dbp->get_btree_index()->get_node_from_page(m_page);
 
     /* insert normal key, then a duplicate; delete both at once */
     prepareNormal("1234123456785678", 16);
@@ -516,16 +540,52 @@ TEST_CASE("BtreeKey/eraseRecord", "")
   f.eraseRecordTest();
 }
 
-TEST_CASE("BtreeKey/eraseDuplicateRecord", "")
+TEST_CASE("BtreeKey/eraseDuplicateRecord1", "")
 {
   BtreeKeyFixture f(true);
-  f.eraseDuplicateRecordTest();
+  f.eraseDuplicateRecordTest1();
 }
 
-TEST_CASE("BtreeKey/eraseAllDuplicateRecord", "")
+TEST_CASE("BtreeKey/eraseDuplicateRecord2", "")
 {
   BtreeKeyFixture f(true);
-  f.eraseAllDuplicateRecordTest();
+  f.eraseDuplicateRecordTest2();
+}
+
+TEST_CASE("BtreeKey/eraseDuplicateRecord3", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseDuplicateRecordTest3();
+}
+
+TEST_CASE("BtreeKey/eraseDuplicateRecord4", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseDuplicateRecordTest4();
+}
+
+TEST_CASE("BtreeKey/eraseAllDuplicateRecord1", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseAllDuplicateRecordTest1();
+}
+
+TEST_CASE("BtreeKey/eraseAllDuplicateRecord2", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseAllDuplicateRecordTest2();
+}
+
+TEST_CASE("BtreeKey/eraseAllDuplicateRecord3", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseAllDuplicateRecordTest3();
+}
+
+TEST_CASE("BtreeKey/eraseAllDuplicateRecord4", "")
+{
+  BtreeKeyFixture f(true);
+  f.eraseAllDuplicateRecordTest4();
 }
 
 } // namespace hamsterdb

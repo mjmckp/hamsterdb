@@ -256,7 +256,7 @@ class PodKeyList
 
     // Returns true if the |key| no longer fits into the node
     bool requires_split(size_t node_count, const ham_key_t *key) {
-      return (node_count >= m_capacity - 1);
+      return (node_count >= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -471,7 +471,7 @@ class BinaryKeyList
 
     // Returns true if the |key| no longer fits into the node
     bool requires_split(size_t node_count, const ham_key_t *key) {
-      return (node_count >= m_capacity - 1);
+      return (node_count >= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -775,7 +775,7 @@ class DefaultRecordList
 
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
-      return (node_count >= m_capacity - 1);
+      return (node_count >= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -1013,7 +1013,7 @@ class InternalRecordList
 
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
-      return (node_count >= m_capacity - 1);
+      return (node_count >= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -1221,7 +1221,7 @@ class InlineRecordList
 
     // Returns true if there's not enough space for another record
     bool requires_split(size_t node_count) {
-      return (node_count >= m_capacity - 1);
+      return (node_count >= m_capacity);
     }
 
     // Checks the integrity of this node. Throws an exception if there is a
@@ -1498,7 +1498,7 @@ class PaxNodeImpl
 
     // Returns true if |key| cannot be inserted because a split is required
     bool requires_split(const ham_key_t *key) const {
-      return (m_node->get_count() >= m_capacity - 1);
+      return (m_node->get_count() >= m_capacity);
     }
 
     // Splits a node and moves parts of the current node into |other|, starting
