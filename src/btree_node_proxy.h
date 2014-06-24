@@ -222,9 +222,6 @@ class BtreeNodeProxy
     // Prints the node to stdout. Only for testing and debugging!
     virtual void print(ham_u32_t count = 0) = 0;
 
-    // Returns the flags of the key at the given |slot|. Only for testing!
-    virtual ham_u32_t test_get_flags(ham_u32_t slot) = 0;
-
     // Returns the class name. Only for testing! Uses the functions exported
     // by abi.h, which are only available on assorted platforms. Other
     // platforms will return empty strings.
@@ -393,8 +390,6 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
 
     // Returns true if the public key and an internal key are equal
     virtual bool equals(const ham_key_t *lhs, int rhs) {
-      if (m_impl.get_key_size(rhs) != lhs->size)
-        return (false);
       return (0 == compare(lhs, rhs));
     }
 
@@ -572,43 +567,10 @@ class BtreeNodeProxyImpl : public BtreeNodeProxy
               is_leaf() ? 1 : 0,
               (unsigned long long)get_left(), (unsigned long long)get_right(),
               (unsigned long long)get_ptr_down());
-      ByteArray arena;
       if (!count)
         count = get_count();
-      for (ham_u32_t i = 0; i < count; i++) {
-        if (m_impl.get_key_flags(i) & BtreeKey::kExtendedKey
-            || m_impl.get_key_flags(i) & BtreeKey::kCompressed) {
-          ham_key_t key = {0};
-          get_key(i, &arena, &key);
-          printf("%03u: EX ", i);
-          for (ham_u32_t j = 0; j < 5; j++) {
-            char ch = ((const char *)key.data)[j];
-            if (ch >= 10)
-              ch += 'a' - 10;
-            else
-              ch += '0';
-            printf("%c", ch);
-          }
-          printf(" (%d) -> %08llx\n",
-                      key.size, (unsigned long long)m_impl.get_record_id(i));
-          //printf("%03u: EX %s (%d) -> %08llx\n", i, (const char *)key.data,
-                      //key.size, (unsigned long long)m_impl.get_record_id(i));
-        }
-        else {
-         printf("%03u:    ", i);
-         //printf("    %08u -> %08llx\n", *(ham_u32_t *)m_impl.get_key_data(i),
-                  //(unsigned long long)m_impl.get_record_id(i));
-         for (ham_u32_t j = 0; j < m_impl.get_key_size(i); j++)
-           printf("%c", ((const char *)m_impl.get_key_data(i))[j]);
-         printf(" (%d) -> %08llx\n", (int)m_impl.get_key_size(i),
-                          (unsigned long long)m_impl.get_record_id(i));
-        }
-      }
-    }
-
-    // Returns the flags of the key at the given |slot|; only for testing!
-    virtual ham_u32_t test_get_flags(ham_u32_t slot) {
-      return (m_impl.get_key_flags(slot) | m_impl.get_record_flags(slot));
+      for (ham_u32_t i = 0; i < count; i++)
+        m_impl.print(i);
     }
 
     // Returns the class name. Only for testing! Uses the functions exported

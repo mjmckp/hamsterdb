@@ -852,7 +852,7 @@ class UpfrontIndex
     // Verifies that there are no overlapping chunks
     void check_integrity(ham_u32_t node_count) const {
       typedef std::pair<ham_u32_t, ham_u32_t> Range;
-      typedef std::vector<Range> RangeVec;
+      //typedef std::vector<Range> RangeVec;
       ham_u32_t total_count = node_count + get_freelist_count();
 
       ham_assert(node_count > 1
@@ -1410,6 +1410,19 @@ class VariableLengthKeyList
       m_index.change_capacity(node_count, new_data_ptr, new_range_size,
               new_capacity);
       m_data = new_data_ptr;
+    }
+
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) {
+      ham_key_t tmp = {0};
+      if (get_key_flags(slot) & BtreeKey::kExtendedKey) {
+        get_extended_key(get_extended_blob_id(slot), &tmp);
+      }
+      else {
+        tmp.size = get_key_size(slot);
+        tmp.data = get_key_data(slot);
+      }
+      out << (const char *)tmp.data;
     }
 
   private:
@@ -2011,6 +2024,11 @@ class DuplicateInlineRecordList : public DuplicateRecordList
       return (ret + m_index.get_next_offset(node_count));
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) {
+      out << "(" << get_record_count(slot) << " records)";
+    }
+
   private:
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
@@ -2464,6 +2482,11 @@ write_record:
       return (ret + m_index.get_next_offset(node_count));
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) {
+      out << "(" << get_record_count(slot) << " records)";
+    }
+
   private:
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
@@ -2538,19 +2561,6 @@ class DefaultNodeImpl
       ham_u32_t count = m_node->get_count();
       if (count == 0)
         return;
-
-      ByteArray arena;
-      for (ham_u32_t i = 0; i < count; i++) {
-        // internal nodes: only allowed flag is kExtendedKey
-        if ((get_key_flags(i) != 0
-            && get_key_flags(i) != BtreeKey::kExtendedKey)
-            && !m_node->is_leaf()) {
-          ham_log(("integrity check failed in page 0x%llx: item #%u "
-                  "has flags but it's not a leaf page",
-                  m_page->get_address(), i));
-          throw Exception(HAM_INTEGRITY_VIOLATED);
-        }
-      }
 
       check_index_integrity(count);
     }
@@ -2908,8 +2918,19 @@ class DefaultNodeImpl
     }
 
     // Returns the capacity
+    // TODO required??
     size_t get_capacity() const {
       return (m_capacity);
+    }
+
+    // Prints a slot to stdout (for debugging)
+    void print(ham_u32_t slot) {
+      std::stringstream ss;
+      ss << "   ";
+      m_keys.print(slot, ss);
+      ss << " -> ";
+      m_records.print(slot, ss);
+      printf("%s\n", ss.str().c_str());
     }
 
   private:

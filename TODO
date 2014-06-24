@@ -710,15 +710,16 @@ o Refactorings for the Default layout with the following goals:
         then use those stats when initializing the nodes
     x get rid of enumerate() - it uses get_key_data() without even checking
         for extended keys!
-    o move print() down to the layout/keylist, this will obsolete
+    x move print() down to the layout/keylist, this will obsolete
         even more public functions (get_record_data, get_key_data...)
+    x do we really need test_get_flags()? - no, removed
+===============================
+    o then once more check if we can remove functions in the layout
         get_key_data()
         get_key_size()
-    o do we really need get_record_id/set_record_id? not convinced...
-        (at least we do not need them on Layout level, but could supply
-            them in the BtreeNodeProxy)
-        -> if not, do we need the Internal layouts?
-    o then once more check if we can remove functions in the layout
+        get_key_flags()     (removed from pax)
+        get_record_flags()  (removed from pax)
+===============================
 
     o rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,

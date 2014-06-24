@@ -75,9 +75,6 @@ struct BtreeKeyFixture {
       node->insert(slot, &key);
 
     node->set_record(slot, &rec, 0, flags, 0);
-    if (!(flags & HAM_DUPLICATE))
-      REQUIRE((ham_u8_t)BtreeRecord::kBlobSizeEmpty
-                    == node->test_get_flags(slot));
   }
 
   void prepareEmpty() {
@@ -110,8 +107,6 @@ struct BtreeKeyFixture {
     node->set_record(slot, &rec, 0, flags, 0);
 
     if (!(flags & HAM_DUPLICATE)) {
-      REQUIRE((ham_u8_t)BtreeRecord::kBlobSizeTiny
-                    == node->test_get_flags(slot));
       node->get_record(slot, &arena, &rec2, 0);
       REQUIRE(rec.size == rec2.size);
       REQUIRE(0 == memcmp(rec.data, rec2.data, rec.size));
@@ -148,11 +143,7 @@ struct BtreeKeyFixture {
     rec.size = sizeof(ham_u64_t);
 
     node->set_record(slot, &rec, 0, flags, 0);
-    if (!(flags & HAM_DUPLICATE)) {
-      REQUIRE((ham_u8_t)BtreeRecord::kBlobSizeSmall
-                    == node->test_get_flags(slot));
-    }
-    else {
+    if (flags & HAM_DUPLICATE) {
       REQUIRE(node->get_record_count(slot) > 1);
     }
 

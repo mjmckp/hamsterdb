@@ -58,6 +58,8 @@
 #ifndef HAM_BTREE_IMPL_PAX_H__
 #define HAM_BTREE_IMPL_PAX_H__
 
+#include <sstream>
+
 #include "globals.h"
 #include "util.h"
 #include "page.h"
@@ -125,16 +127,6 @@ class PodKeyList
     // Iterates all keys, calls the |visitor| on each
     void scan(ScanVisitor *visitor, ham_u32_t start, size_t count) {
       (*visitor)(&m_data[start], count);
-    }
-
-    // Returns the flags of a key; always 0
-    ham_u8_t get_key_flags(ham_u32_t slot) const {
-      return (0);
-    }
-
-    // Sets the flags of a key; not supported
-    void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
-      ham_assert(!"shouldn't be here");
     }
 
     // Copies a key into |dest|
@@ -284,6 +276,11 @@ class PodKeyList
       m_capacity = new_capacity;
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) const {
+      out << m_data[slot];
+    }
+
   private:
     // The actual array of T's
     T *m_data;
@@ -344,16 +341,6 @@ class BinaryKeyList
     // Iterates all keys, calls the |visitor| on each
     void scan(ScanVisitor *visitor, ham_u32_t start, size_t count) {
       (*visitor)(&m_data[start * m_key_size], count);
-    }
-
-    // Returns the flags of a key; always 0
-    ham_u8_t get_key_flags(ham_u32_t slot) const {
-      return (0);
-    }
-
-    // Sets the flags of a key; not supported
-    void set_key_flags(ham_u32_t slot, ham_u8_t flags) {
-      ham_assert(!"shouldn't be here");
     }
 
     // Copies a key into |dest|
@@ -497,6 +484,12 @@ class BinaryKeyList
       memmove(new_data_ptr, m_data, node_count * m_key_size);
       m_data = new_data_ptr;
       m_capacity = new_capacity;
+    }
+
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) const {
+      for (size_t i = 0; i < m_key_size; i++)
+        out << m_data[slot * m_key_size + i];
     }
 
   private:
@@ -815,6 +808,11 @@ class DefaultRecordList
       m_capacity = new_capacity;
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) const {
+      out << "(" << get_record_size(slot) << " bytes)";
+    }
+
   private:
     // Returns the size of an inline record
     ham_u32_t get_inline_record_size(ham_u32_t slot) const {
@@ -1041,6 +1039,11 @@ class InternalRecordList
       m_capacity = new_capacity;
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) const {
+      out << "(" << get_record_id(slot) << " bytes)";
+    }
+
   private:
     // The parent database of this btree
     LocalDatabase *m_db;
@@ -1249,6 +1252,11 @@ class InlineRecordList
       m_capacity = new_capacity;
     }
 
+    // Prints a slot to |out| (for debugging)
+    void print(ham_u32_t slot, std::stringstream &out) const {
+      out << "(" << get_record_size(slot) << " bytes)";
+    }
+
   private:
     // The parent database of this btree
     LocalDatabase *m_db;
@@ -1440,11 +1448,6 @@ class PaxNodeImpl
       m_records.set_record_id(slot, ptr);
     }
 
-    // Returns the (persisted) flags of a record
-    ham_u8_t get_record_flags(ham_u32_t slot) const {
-      return (m_records.get_record_flags(slot));
-    }
-
     // Returns the record size of a key or one of its duplicates
     ham_u64_t get_record_size(ham_u32_t slot, int duplicate_index = 0) const {
       return (m_records.get_record_size(slot));
@@ -1453,11 +1456,6 @@ class PaxNodeImpl
     // Returns the key size
     ham_u32_t get_key_size(ham_u32_t slot) const {
       return (m_keys.get_key_size(slot));
-    }
-
-    // Returns the flags of a key; always 0
-    ham_u8_t get_key_flags(ham_u32_t slot) const {
-      return (0);
     }
 
     // Returns a pointer to the key data
@@ -1538,6 +1536,16 @@ class PaxNodeImpl
       // shift items from the sibling to this page
       other->m_keys.copy_to(0, other_count, m_keys, count, count);
       other->m_records.copy_to(0, other_count, m_records, count, count);
+    }
+
+    // Prints a slot to stdout (for debugging)
+    void print(ham_u32_t slot) const {
+      std::stringstream ss;
+      ss << "   ";
+      m_keys.print(slot, ss);
+      ss << " -> ";
+      m_records.print(slot, ss);
+      printf("%s\n", ss.str().c_str());
     }
 
   private:
