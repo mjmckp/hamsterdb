@@ -713,44 +713,26 @@ o Refactorings for the Default layout with the following goals:
     x move print() down to the layout/keylist, this will obsolete
         even more public functions (get_record_data, get_key_data...)
     x do we really need test_get_flags()? - no, removed
-===============================
-    o then once more check if we can remove functions in the layout
-        get_key_data()
-        get_key_size()
-        get_key_flags()     (removed from pax)
-        get_record_flags()  (removed from pax)
-===============================
-
-    o rename "count" to "node_count", once more review and make sure that
-        the order of the methods is identical in all classes,
-        and that the order of the parameters is consistent
-        o make sure that there is only 1 offfset calculation per higher-level
-            function, and not something like i.e.
-                set_key_size(slot, size)
-                set_key_flags(slot, flags)
-            which performs two offset calculations; rewrite as
-                offset = get_offset(slot)
-                set_key_size_offset(offset, size)
-                set_key_flags_offset(offset, flags)
-        o also review pax layout
-    o fix the remaining TODOs in btree_impl_default.h
-
-    o there is lots of duplicate code in the PaxRecordLists; move to
-        common base class
-    o there is lots of duplicate code in *DuplicateRecordList; move to
-        common base class
-        o or can we merge the two duplicate RecordLists? 
-    
-    o can the two btree formats (pax/default) be merged? if yes then they could
-        be moved directly into the BtreeNodeProxy (or BtreeNodeProxyImpl).
+    x then once more check if we can remove functions in the layout
 
     x could reduce library size a lot if the layout could deal with
         different page sizes (i.e. the offset type is chosen dynamically)
 
-    o new test: ./ham_bench --key=uint32 --recsize=1 --recsize-fixed=1 --duplicate=last
+    o rename "count" to "node_count", once more review and make sure that
+        the order of the methods is identical in all classes,
+        and that the order of the parameters is consistent
+        x DuplicateTable
+        x UpfrontIndex
+        x KeyLists
+        x RecordLists
+        x NodeLayouts
+        x also review pax layout
+    o fix the remaining TODOs in btree_impl_default.h
+
+    o run monster tests
 
     o run performance tests
-    o run monster tests
+        o make sure 
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 

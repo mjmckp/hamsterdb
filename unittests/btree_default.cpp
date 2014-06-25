@@ -1552,7 +1552,7 @@ struct UpfrontIndexFixture
     REQUIRE(ui.get_freelist_count() == 0);
     REQUIRE(ui.get_capacity() == 300);
     REQUIRE(ui.get_next_offset(0) == 0);
-    REQUIRE(ui.get_full_range_size() == sizeof(data));
+    REQUIRE(ui.get_range_size() == sizeof(data));
 
     UpfrontIndex ui2((LocalDatabase *)m_db);
     REQUIRE(ui2.get_full_index_size() == 4);
@@ -1560,7 +1560,7 @@ struct UpfrontIndexFixture
     REQUIRE(ui2.get_freelist_count() == 0);
     REQUIRE(ui2.get_capacity() == 300);
     REQUIRE(ui2.get_next_offset(0) == 0);
-    REQUIRE(ui2.get_full_range_size() == sizeof(data));
+    REQUIRE(ui2.get_range_size() == sizeof(data));
   }
 
   void appendSlotTest() {
@@ -1609,7 +1609,7 @@ struct UpfrontIndexFixture
     REQUIRE(ui.can_insert_slot(kMax) == false);
 
     for (size_t i = 0; i < kMax - 1; i++) {
-      ui.erase_slot(0, kMax - i);
+      ui.erase_slot(kMax - i, 0);
       REQUIRE(ui.get_freelist_count() == i + 1);
       REQUIRE(ui.get_chunk_size(0) == i + 1);
       REQUIRE(ui.get_chunk_offset(0) == i + 1);
@@ -1627,7 +1627,7 @@ struct UpfrontIndexFixture
     REQUIRE(ui.can_insert_slot(kMax) == false);
 
     for (size_t i = 0; i < kMax; i++) {
-      ui.erase_slot(kMax - 1 - i, kMax - i);
+      ui.erase_slot(kMax - i, kMax - 1 - i);
       REQUIRE(ui.get_freelist_count() == i + 1);
       for (size_t j = 0; j < kMax; j++) { // also checks freelist
         REQUIRE(ui.get_chunk_size(j) == j);
@@ -1676,7 +1676,7 @@ struct UpfrontIndexFixture
 
     // erase the last slot, allocate it again
     REQUIRE(ui.get_freelist_count() == 0);
-    ui.erase_slot(i - 1, i);
+    ui.erase_slot(i, i - 1);
     REQUIRE(ui.get_freelist_count() == 1);
     REQUIRE(ui.can_allocate_space(i - 1, 64) == true);
     REQUIRE(ui.allocate_space(i - 1, i - 1, 64) > 0);
@@ -1684,7 +1684,7 @@ struct UpfrontIndexFixture
 
     // erase the first slot, allocate it again
     REQUIRE(ui.get_freelist_count() == 0);
-    ui.erase_slot(0, i);
+    ui.erase_slot(i, 0);
     REQUIRE(ui.get_freelist_count() == 1);
     REQUIRE(ui.can_allocate_space(i - 1, 64) == true);
     REQUIRE(ui.allocate_space(i - 1, i - 1, 64) == 0);
