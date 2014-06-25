@@ -64,7 +64,8 @@ DiskBlobManager::do_allocate(LocalDatabase *db, ham_record_t *record,
     // |page| now points to the first page that was allocated, and
     // the only one which has a header and a freelist
     page = m_env->get_page_manager()->alloc_multiple_blob_pages(db, num_pages);
-    ham_assert(page->get_flags() & ~Page::kNpersNoHeader);
+    ham_assert((page->get_flags() & Page::kNpersNoHeader)
+                    != Page::kNpersNoHeader);
 
     // initialize the PBlobPageHeader
     header = PBlobPageHeader::from_page(page);

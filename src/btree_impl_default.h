@@ -712,8 +712,14 @@ class UpfrontIndex
 
     // Returns true if this index has at least one free slot available.
     // |node_count| is the number of used slots (this is managed by the caller)
-    bool can_insert_slot(size_t node_count) const {
-      return (node_count + get_freelist_count() < m_capacity);
+    bool can_insert_slot(size_t node_count) {
+      if (node_count + get_freelist_count() < m_capacity)
+        return (true);
+      if (m_vacuumize_counter > 0 && get_freelist_count()) {
+        vacuumize(node_count);
+        return (node_count + get_freelist_count() < m_capacity);
+      }
+      return (false);
     }
 
     // Inserts a slot at the position |slot|. |node_count| is the number of
@@ -842,7 +848,7 @@ class UpfrontIndex
           else if (next_offset == get_chunk_offset(slot) + get_chunk_size(slot))
             invalidate_next_offset();
           // copy the chunk to the new slot
-          set_chunk_size(slot, chunk_size);
+          set_chunk_size(slot, num_bytes);
           set_chunk_offset(slot, chunk_offset);
           // remove from the freelist
           if (i < total_count - 1) {
@@ -1082,6 +1088,7 @@ class UpfrontIndex
 
     // Sets the number of freelist entries
     void set_freelist_count(size_t freelist_count) {
+      ham_assert(freelist_count <= m_capacity);
       *(ham_u32_t *)m_data = ham_h2db32(freelist_count);
     }
 
@@ -1284,7 +1291,8 @@ class VariableLengthKeyList
       node_count++;
 
       // When inserting the data: always add 1 byte for key flags
-      if (key->size <= m_extkey_threshold) {
+      if (key->size <= m_extkey_threshold
+            && m_index.can_allocate_space(node_count, key->size + 1, true)) {
         ham_u32_t offset = m_index.allocate_space(node_count, slot,
                         key->size + 1);
         ham_u8_t *p = m_index.get_chunk_data_by_offset(offset);
@@ -1572,15 +1580,17 @@ class DuplicateRecordList
         m_duptable_threshold = Globals::ms_duplicate_threshold;
       else {
         if (page_size == 1024)
-          m_duptable_threshold = 16;
+          m_duptable_threshold = 8;
         else if (page_size <= 1024 * 8)
-          m_duptable_threshold = 32;
+          m_duptable_threshold = 12;
         else if (page_size <= 1024 * 16)
-          m_duptable_threshold = 64;
+          m_duptable_threshold = 20;
+        else if (page_size <= 1024 * 32)
+          m_duptable_threshold = 32;
         else {
           // 0x7f/127 is the maximum that we can store in the record
-          // counter (7 bits)
-          m_duptable_threshold = 0x7f;
+          // counter (7 bits), but we won't exploit this fully
+          m_duptable_threshold = 64;
         }
       }
     }
@@ -2799,12 +2809,8 @@ class DefaultNodeImpl
 
         // still here? then there's no way to avoid the split
         BtreeIndex *bi = m_page->get_db()->get_btree_index();
-        if (node_count >= m_capacity - 1)
-          bi->get_statistics()->set_page_capacity(m_node->is_leaf(),
-                          m_capacity * 1.5);
-        else
-          bi->get_statistics()->set_page_capacity(m_node->is_leaf(),
-                          node_count);
+        bi->get_statistics()->set_page_capacity(m_node->is_leaf(),
+                        m_capacity);
         bi->get_statistics()->set_keylist_range_size(m_node->is_leaf(),
                         m_keys.get_range_size());
         return (true);

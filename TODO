@@ -718,7 +718,7 @@ o Refactorings for the Default layout with the following goals:
     x could reduce library size a lot if the layout could deal with
         different page sizes (i.e. the offset type is chosen dynamically)
 
-    o rename "count" to "node_count", once more review and make sure that
+    x rename "count" to "node_count", once more review and make sure that
         the order of the methods is identical in all classes,
         and that the order of the parameters is consistent
         x DuplicateTable
@@ -727,12 +727,37 @@ o Refactorings for the Default layout with the following goals:
         x RecordLists
         x NodeLayouts
         x also review pax layout
-    o fix the remaining TODOs in btree_impl_default.h
+    x fix the remaining TODOs in btree_impl_default.h
 
     o run monster tests
+        o ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
+                --stop-ops=300000 --seed=1403692783 --metrics=all
+            2.1.6: 10098688
+            2.1.7: 24852480 !!
+            head:  28548096 !!
+            bdb:   20731904
+            number of page splits increased; also, HEAD has 59 extkeys (2.1.7
+                has none)
+        o equally worse with --recsize-fixed=0:
+            2.1.7: 21740544 !!
+        o ./ham_bench ../testfiles/2/ext_061.tst
+            hamsterdb 4 x larger than bdb
+
+        x Is it possible that the page splits create larger files?
+            compared to 2.1.6, the splits are now happening *before* the key
+            is inserted. It's still possible for the insertion to fail, i.e.
+            because the key already exists.
+            -> tried this but it only reduced splits by 1 page (21219 -> 21218)
+                --key=binary --keysize=64 --pagesize=1024 \
+                --recsize=0 --recsize-fixed=0 --stop-ops=300000 \
+                --seed=1403692783
+        o check tests above with fixed-length (PAX) keys - equally bad?
+            run more tests; is it only the VariableKeyList which performs bad?
+        o fix it!!
+
+    o remove conditional check for split? (btree_insert)
 
     o run performance tests
-        o make sure 
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 
@@ -792,7 +817,6 @@ o adapt to the newest changes from 2.1.8
 
 . PRO: add avx support
 o PRO: add sse support for real64
-o PRO: add new compression library LZ4 (https://code.google.com/p/lz4/)
 
 o PRO: CRC32-checksums (as soon as the file format is updated)
     o SSE2 has support for a CRC32 checksum calculation, or find a good
@@ -802,11 +826,11 @@ o PRO: CRC32-checksums (as soon as the file format is updated)
 o PRO: enable SIMD in the default layout if it uses the same KeyList as
     in PAX *and* if record IDs are stored separately from the keys
 
-------------- hamsterdb 2.1.9 ----------------------------------------
-
-o should we have a separate "recsize == 0" RecordList for duplicates?
+o PRO: should we have a separate "recsize == 0" RecordList for duplicates?
     they could only store the duplicate count (but should be able to deal
     with duplicates that are > 256!)
+
+------------- hamsterdb 2.1.9 ----------------------------------------
 
 o duplicate table: check for overflow of the capacity/duplicate counter
 
