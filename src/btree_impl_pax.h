@@ -869,7 +869,7 @@ class InternalRecordList
     }
 
     // Returns the actual size including overhead
-    ham_u32_t get_full_record_size() const {
+    size_t get_full_record_size() const {
       return (sizeof(ham_u64_t));
     }
 
@@ -1037,7 +1037,7 @@ class InlineRecordList
     }
 
     // Returns the actual record size including overhead
-    ham_u32_t get_full_record_size() const {
+    size_t get_full_record_size() const {
       return ((ham_u32_t)m_record_size);
     }
 
