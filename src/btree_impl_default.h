@@ -1209,9 +1209,12 @@ class VariableLengthKeyList
     // Returns the actual key size including overhead. This is an estimate
     // since we don't know how large the keys will be
     size_t get_full_key_size(const ham_key_t *key = 0) const {
-      if (key && key->size > m_extkey_threshold)
+      if (!key)
+        return (32);
+      // always make sure to have enough space for an extkey id
+      if (key->size < 8 || key->size > m_extkey_threshold)
         return (sizeof(ham_u64_t) + m_index.get_full_index_size() + 1);
-      return (32);
+      return (key->size + m_index.get_full_index_size() + 1);
     }
 
     // Copies a key into |dest|
@@ -3011,19 +3014,19 @@ class DefaultNodeImpl
       m_records.vacuumize(node_count, true);
 
       size_t key_range_size = 0;
-      size_t new_capacity = m_capacity;
+      size_t new_capacity;
 
       // do we have to increase the capacity?
       if (node_count == m_capacity) {
-        new_capacity++;
-
         if (KeyList::kHasSequentialData)
           key_range_size = m_keys.calculate_required_range_size(node_count,
-                                    new_capacity);
+                                    m_capacity + 1);
         else
           key_range_size = m_keys.calculate_required_range_size(node_count,
                                     m_capacity)
                             + m_keys.get_full_key_size(key);
+
+        new_capacity = m_capacity + 1;
       }
       // do we have to decrease the capacity in order to free space for the
       // data areas?
@@ -3031,7 +3034,7 @@ class DefaultNodeImpl
         size_t shrink_slots = (m_capacity - node_count) / 2;
         if (shrink_slots == 0)
           shrink_slots = 1;
-        new_capacity -= shrink_slots;
+        new_capacity = m_capacity - shrink_slots;
         if (new_capacity <= node_count)
           return (false);
 
@@ -3050,14 +3053,19 @@ class DefaultNodeImpl
       // there is enough room for a DuplicateTable id (if duplicates
       // are enabled)
       size_t record_range_size = m_records.calculate_required_range_size(
-                      node_count, new_capacity + 1);
+                      node_count, new_capacity);
       if (m_page->get_db()->get_rt_flags() & HAM_ENABLE_DUPLICATES)
         record_range_size += 10;
+      // TODO here we could try to reduce the key_range_size iff the
+      // key could be stored as an extended key (not sure if this is a
+      // good idea for performance, though)
       if (key_range_size + record_range_size > usable_page_size)
         return (false);
 
-      // Get a pointer to the data area
-      ham_u8_t *p = m_node->get_data() + sizeof(ham_u32_t);
+      // Get a pointer to the data area and persist the new capacity
+      ham_u8_t *p = m_node->get_data();
+      *(ham_u32_t *)p = new_capacity;
+      p += sizeof(ham_u32_t);
 
       // Now change the capacity in both lists. If the KeyList grows then
       // start with resizing the RecordList, otherwise the moved KeyList
@@ -3078,9 +3086,6 @@ class DefaultNodeImpl
                         usable_page_size - key_range_size);
       }
       
-      // persist the new capacity
-      p = m_node->get_data();
-      *(ham_u32_t *)p = new_capacity;
       m_capacity = new_capacity;
 
       // make sure that the page is flushed to disk
