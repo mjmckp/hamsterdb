@@ -585,7 +585,7 @@ class UpfrontIndex
 {
     enum {
       // width of the 'size' field
-      kSizeofSize = sizeof(ham_u16_t)
+      kSizeofSize = 1 // sizeof(ham_u16_t)
     };
 
   public:
@@ -692,16 +692,15 @@ class UpfrontIndex
 
     // Returns the size of a chunk
     ham_u16_t get_chunk_size(ham_u32_t slot) const {
-      ham_u8_t *p = &m_data[kPayloadOffset + get_full_index_size() * slot
-                                + m_sizeof_offset];
-      return (*(ham_u16_t *)p);
+      return (m_data[kPayloadOffset + get_full_index_size() * slot
+                                + m_sizeof_offset]);
     }
 
     // Sets the size of a chunk (does NOT actually resize the chunk!)
     void set_chunk_size(ham_u32_t slot, ham_u16_t size) {
-      ham_u8_t *p = &m_data[kPayloadOffset + get_full_index_size() * slot
-                                + m_sizeof_offset];
-      *(ham_u16_t *)p = size;
+      ham_assert(size <= 255);
+      m_data[kPayloadOffset + get_full_index_size() * slot
+                                + m_sizeof_offset] = (ham_u8_t)size;
     }
 
     // Increases the "vacuumize-counter", which is an indicator whether
@@ -1167,8 +1166,11 @@ class VariableLengthKeyList
           m_extkey_threshold = 64;
         else if (page_size <= 1024 * 8)
           m_extkey_threshold = 128;
-        else
-          m_extkey_threshold = 256;
+        else {
+          // UpfrontIndex's chunk size has 8 bit (max 255), and reserve
+          // a few bytes for metadata (flags)
+          m_extkey_threshold = 250;
+        }
       }
     }
 
@@ -1595,6 +1597,13 @@ class DuplicateRecordList
           // counter (7 bits), but we won't exploit this fully
           m_duptable_threshold = 64;
         }
+        // UpfrontIndex's chunk_size is just 1 byte (max 255); make sure that
+        // the duplicate list fits into a single chunk!
+        size_t rec_size = m_record_size;
+        if (rec_size == HAM_RECORD_SIZE_UNLIMITED)
+          rec_size = 9;
+        if (m_duptable_threshold * rec_size > 250)
+          m_duptable_threshold = 250 / rec_size;
       }
     }
 
@@ -2038,6 +2047,16 @@ class DuplicateInlineRecordList : public DuplicateRecordList
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(size_t node_count, bool quick = false) const {
+      for (size_t i = 0; i < node_count; i++) {
+        ham_u32_t offset = m_index.get_absolute_chunk_offset(i);
+        if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+          ham_assert((m_data[offset] & 0x7f) == 0);
+        }
+        else {
+          ham_assert((m_data[offset] & 0x7f) > 0);
+        }
+      }
+
       m_index.check_integrity(node_count);
     }
 
@@ -2060,6 +2079,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
       ham_u32_t offset = m_index.get_absolute_chunk_offset(slot);
+      ham_assert(!(m_data[offset] & BtreeRecord::kExtendedDuplicates));
       return (m_data[offset] & 0x7f);
     }
 
@@ -2480,6 +2500,13 @@ write_record:
     // Checks the integrity of this node. Throws an exception if there is a
     // violation.
     void check_integrity(ham_u32_t node_count, bool quick = false) const {
+      for (size_t i = 0; i < node_count; i++) {
+        ham_u32_t offset = m_index.get_absolute_chunk_offset(i);
+        if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
+          ham_assert((m_data[offset] & 0x7f) == 0);
+        }
+      }
+
       m_index.check_integrity(node_count);
     }
 
@@ -2500,6 +2527,7 @@ write_record:
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
       ham_u32_t offset = m_index.get_absolute_chunk_offset(slot);
+      ham_assert(!(m_data[offset] & BtreeRecord::kExtendedDuplicates));
       return (m_data[offset] & 0x7f);
     }
 
@@ -2964,11 +2992,6 @@ class DefaultNodeImpl
           else {
             key_range_size = m_keys.get_full_key_size() * m_capacity;
             record_range_size = m_records.get_full_record_size() * m_capacity;
-            if (key_range_size + record_range_size > usable_page_size) {
-ham_assert(!"shouldn't be here"); // TODO remove this branch
-              key_range_size = usable_page_size / 2;
-              record_range_size = usable_page_size - key_range_size;
-            }
           }
         }
         else {
@@ -3020,14 +3043,53 @@ ham_assert(!"shouldn't be here"); // TODO remove this branch
       size_t new_capacity;
       size_t usable_page_size = get_usable_page_size();
 
-      // TODO rearrange the code; record_range_size is often calculated twice,
-      // just for asserting that key_range_size + record_range_size
-      //        < usable_page_size!
+      // We now have three options to make room for the new key/record pair:
+      //
+      // Option 1: if both lists are VariableLength and the capacity is
+      // sufficient then we can just change the sizes of both lists
+      if (!KeyList::kHasSequentialData && !RecordList::kHasSequentialData
+              && node_count < old_capacity) {
+        // KeyList range is too small: calculate the minimum required range
+        // for the KeyList and check if the remaining space is large enough
+        // for the RecordList
+        size_t required = m_records.calculate_required_range_size(node_count,
+                                      old_capacity);
+        if (m_records.get_full_record_size() < 10)
+          required += 10;
+        else
+          required += m_records.get_full_record_size();
 
-      // do we have to increase the capacity?
+        if (keys_require_split) {
+          key_range_size = m_keys.calculate_required_range_size(node_count,
+                                      old_capacity)
+                            + m_keys.get_full_key_size(key);
+          record_range_size = usable_page_size - key_range_size;
+          if (record_range_size >= required) {
+            new_capacity = old_capacity;
+            goto apply_changes;
+          }
+        }
+        // RecordList range is too small: calculate the minimum required range
+        // for the RecordList and check if the remaining space is large enough
+        // for the Keylist
+        else {
+          record_range_size = required;
+          key_range_size = usable_page_size - record_range_size;
+          if (key_range_size > m_keys.calculate_required_range_size(node_count,
+                                old_capacity) + m_keys.get_full_key_size(key)) {
+            new_capacity = old_capacity;
+            goto apply_changes;
+          }
+        }
+      }
+
+      // Option 2: if the capacity is expleted then increase it.  
       if (node_count == old_capacity) {
         new_capacity = old_capacity + 1;
       }
+      // Option 3: we reduce the capacity. This also reduces the metadata in
+      // the Lists (the UpfrontIndex shrinks) and therefore generates room
+      // for more data.
       else {
         size_t shrink_slots = (old_capacity - node_count) / 2;
         if (shrink_slots == 0)
@@ -3037,6 +3099,7 @@ ham_assert(!"shouldn't be here"); // TODO remove this branch
           return (false);
       }
 
+      // Calculate the range sizes for the new capacity
       if (KeyList::kHasSequentialData) {
         key_range_size = m_keys.calculate_required_range_size(node_count,
                                     new_capacity);
@@ -3065,6 +3128,7 @@ ham_assert(!"shouldn't be here"); // TODO remove this branch
       // Check if the required record space is large enough, and make sure
       // there is enough room for a DuplicateTable id (if duplicates
       // are enabled)
+apply_changes:
       if (key_range_size + record_range_size > usable_page_size)
         return (false);
 

@@ -1553,10 +1553,14 @@ struct HamsterdbFixture {
       REQUIRE(0 == ham_db_insert(m_db, 0, &key, &rec, HAM_DUPLICATE));
     }
 
+    REQUIRE(0 == ham_db_check_integrity(m_db, 0));
+
     count = 0;
     REQUIRE(0 ==
         ham_db_get_key_count(m_db, 0, HAM_SKIP_DUPLICATES, &count));
     REQUIRE((unsigned)4000 == count);
+
+    REQUIRE(0 == ham_db_check_integrity(m_db, 0));
 
     REQUIRE(0 ==
         ham_db_get_key_count(m_db, 0, 0, &count));

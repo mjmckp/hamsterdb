@@ -1546,7 +1546,7 @@ struct UpfrontIndexFixture
     ham_u8_t data[1024 * 16] = {1};
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    REQUIRE(ui.get_full_index_size() == 4);
+    REQUIRE(ui.get_full_index_size() == 3);
     ui.create(&data[0], sizeof(data), 300);
 
     REQUIRE(ui.get_freelist_count() == 0);
@@ -1555,7 +1555,7 @@ struct UpfrontIndexFixture
     REQUIRE(ui.get_range_size() == sizeof(data));
 
     UpfrontIndex ui2((LocalDatabase *)m_db);
-    REQUIRE(ui2.get_full_index_size() == 4);
+    REQUIRE(ui2.get_full_index_size() == 3);
     ui2.open(&data[0], 300);
     REQUIRE(ui2.get_freelist_count() == 0);
     REQUIRE(ui2.get_capacity() == 300);
@@ -1567,7 +1567,7 @@ struct UpfrontIndexFixture
     ham_u8_t data[1024 * 16] = {1};
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    REQUIRE(ui.get_full_index_size() == 4);
+    REQUIRE(ui.get_full_index_size() == 3);
     ui.create(&data[0], sizeof(data), 300);
 
     for (size_t i = 0; i < 300; i++) {
@@ -1582,7 +1582,7 @@ struct UpfrontIndexFixture
     const size_t kMax = 300;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    REQUIRE(ui.get_full_index_size() == 4);
+    REQUIRE(ui.get_full_index_size() == 3);
     ui.create(&data[0], sizeof(data), kMax);
 
     for (size_t i = 0; i < kMax; i++) {
@@ -1594,10 +1594,10 @@ struct UpfrontIndexFixture
 
   void eraseSlotTest() {
     ham_u8_t data[1024 * 16] = {1};
-    const size_t kMax = 300;
+    const size_t kMax = 200;
 
     UpfrontIndex ui((LocalDatabase *)m_db);
-    REQUIRE(ui.get_full_index_size() == 4);
+    REQUIRE(ui.get_full_index_size() == 3);
     ui.create(&data[0], sizeof(data), kMax);
 
     for (size_t i = 0; i < kMax; i++) {

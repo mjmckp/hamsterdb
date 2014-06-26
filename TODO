@@ -732,7 +732,7 @@ o Refactorings for the Default layout with the following goals:
         x ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
                 --stop-ops=300000 --seed=1403692783 --recsize-fixed=0
             2.1.6: 19684352
-            head:  18927616
+            head:  18388992
             bdb:   20731904
         x ./ham_bench ~/prj/hamsterdb-tests/testfiles/2/ext_061.tst
             2.1.6: 294912
@@ -741,33 +741,38 @@ o Refactorings for the Default layout with the following goals:
         x ./ham_bench --recsize-fixed=0 --seed=1403079888
             DEFAULT: VAR/PAX
             2.1.6: 21168128
-            head:  16924672
+            head:  16859136
             bdb:   28135424
         x ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
                 --stop-ops=300000 --seed=1403692783
             2.1.6: 23900160
-            head:  23451648
+            head:  22888448
             bdb:   20731904
         x ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
                     --seed=1403080032
             DEFAULT: PAX/VAR
             2.1.6: 10502144
-            head:  15515648 !!
+            head:  10485760
             bdb:   23060480
         x ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
                     --seed=1403080037
             DEFAULT: PAX/VAR
             2.1.6: 15515648
-            head:  16728064
+            head:  15515648
             bdb:   23646208
-        o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
+        x ./ham_bench --recsize-fixed=1 --duplicate=last --seed=1403080037
             DEFAULT: VAR/VAR
-            2.1.6: 17154048
-            head:  52297728 !!
+            2.1.6: 18087936
+            head:  19185664
             bdb:   29532160
 
-./ham_bench --use-berkeleydb=true --reopen=true --use-cursors --duplicate=first ../testfiles/1/41.tst
-./ham_bench --use-berkeleydb=true --reopen=true  --use-cursors --duplicate=first ../testfiles/2/ext_050.tst
+    o run unittests, monster tests
+        o Hamsterdb/recordCountTest
+            b btree_impl_default.h:3029
+          -> 4th call of adjust_capacity (node_count == 98) destroys the
+             record list (m_records.check_integrity fails)
+
+        o ./ham_bench --use-berkeleydb=true --reopen=true  --use-cursors --duplicate=first ../testfiles/1/10004.tst
 
     o run performance tests
     o remove conditional check for split? (btree_insert)
