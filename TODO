@@ -729,43 +729,45 @@ o Refactorings for the Default layout with the following goals:
             2.1.6: 5373952
             2.1.7: 5373952
             head:  5423104
-        x ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
+        o ./ham_bench --key=uint32 --recsize-fixed=1 --duplicate=last \
                     --seed=1403080037
             DEFAULT: PAX/VAR
             2.1.6: 15515648
             2.1.7: 15515648
             head:  16728064
         x ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
-                --stop-ops=300000 --seed=1403692783
-            2.1.6: 23900160
-            head:  23993344
-            bdb:   20731904
-        x ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
                 --stop-ops=300000 --seed=1403692783 --recsize-fixed=0
             2.1.6: 19684352
-            head:  19380224
+            head:  18956288
             bdb:   20731904
         x ./ham_bench ~/prj/hamsterdb-tests/testfiles/2/ext_061.tst
             2.1.6: 294912
-            head:  278528
+            head:  245760
             bdb:   61440
-        o ./ham_bench --recsize-fixed=0 --seed=1403079888
+        x ./ham_bench --recsize-fixed=0 --seed=1403079888
             DEFAULT: VAR/PAX
             2.1.6: 21168128
-            head:  33619968 !!
+            head:  16908288
+            bdb:   28135424
+        x ./ham_bench --key=binary --keysize=64 --pagesize=1024 --recsize=0 \
+                --stop-ops=300000 --seed=1403692783
+            2.1.6: 23900160
+            head:  23643136
+            bdb:   20731904
         o ./ham_bench --recsize-fixed=0 --duplicate=last --seed=1403080037
             DEFAULT: VAR/VAR
             2.1.6: 17154048
-            head:  35733504 !!
+            head:  27000832 !!
+            bdb:   29532160
         o ./ham_bench --key=uint32 --recsize-fixed=0 --duplicate=last \
                      --seed=1403080037
              DEFAULT: PAX/VAR
             2.1.6: 10715136
             head:  15515648
-
-    o remove conditional check for split? (btree_insert)
+            bdb:   23646208
 
     o run performance tests
+    o remove conditional check for split? (btree_insert)
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
 

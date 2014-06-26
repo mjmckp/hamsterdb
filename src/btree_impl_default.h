@@ -1210,7 +1210,7 @@ class VariableLengthKeyList
     // since we don't know how large the keys will be
     size_t get_full_key_size(const ham_key_t *key = 0) const {
       if (!key)
-        return (32);
+        return (24 + m_index.get_full_index_size() + 1);
       // always make sure to have enough space for an extkey id
       if (key->size < 8 || key->size > m_extkey_threshold)
         return (sizeof(ham_u64_t) + m_index.get_full_index_size() + 1);
@@ -3015,16 +3015,37 @@ class DefaultNodeImpl
 
       size_t key_range_size = 0;
       size_t new_capacity;
+      size_t usable_page_size = get_usable_page_size();
+
+      // TODO rearrange the code; record_range_size is often calculated twice,
+      // just for asserting that key_range_size + record_range_size
+      // < usable_page_size!
 
       // do we have to increase the capacity?
       if (node_count == m_capacity) {
-        if (KeyList::kHasSequentialData)
-          key_range_size = m_keys.calculate_required_range_size(node_count,
-                                    m_capacity + 1);
-        else
+        if (KeyList::kHasSequentialData) {
+          key_range_size = m_keys.calculate_required_range_size(
+                                    node_count, m_capacity + 1);
+        }
+        else if (RecordList::kHasSequentialData) {
+          size_t record_range_size = m_records.calculate_required_range_size(
+                                    node_count, m_capacity + 1);
+          record_range_size += 10;
+          key_range_size = usable_page_size - record_range_size;
+          if (key_range_size < m_keys.calculate_required_range_size(
+                      node_count, m_capacity + 1))
+            return (false);
+        }
+        else {
           key_range_size = m_keys.calculate_required_range_size(node_count,
                                     m_capacity)
                             + m_keys.get_full_key_size(key);
+          size_t record_range_size = m_records.calculate_required_range_size(
+                                    node_count, m_capacity + 1);
+          int diff = usable_page_size - (key_range_size + record_range_size);
+          if (diff > 10) // additional 10 bytes are reserved for the record list
+            key_range_size += diff;
+        }
 
         new_capacity = m_capacity + 1;
       }
@@ -3047,15 +3068,11 @@ class DefaultNodeImpl
                             + m_keys.get_full_key_size(key);
       }
 
-      size_t usable_page_size = get_usable_page_size();
-
       // Check if the required record space is large enough, and make sure
       // there is enough room for a DuplicateTable id (if duplicates
       // are enabled)
       size_t record_range_size = m_records.calculate_required_range_size(
                       node_count, new_capacity);
-      if (m_page->get_db()->get_rt_flags() & HAM_ENABLE_DUPLICATES)
-        record_range_size += 10;
       // TODO here we could try to reduce the key_range_size iff the
       // key could be stored as an extended key (not sure if this is a
       // good idea for performance, though)
