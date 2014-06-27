@@ -137,8 +137,6 @@ class DuplicateTable
 
     // Destructor; deletes all blobs if running in-memory
     ~DuplicateTable() {
-      if (m_db->get_rt_flags() & HAM_IN_MEMORY)
-        erase_record(0, true);
     }
 
     // Allocates and fills the table; returns the new table id.
@@ -399,9 +397,11 @@ class DuplicateTable
             ham_u8_t *p = get_record_data(i, &record_flags);
             if (is_record_inline(*record_flags))
               continue;
-            m_db->get_local_env()->get_blob_manager()->erase(m_db,
-                            *(ham_u64_t *)p);
-            *(ham_u64_t *)p = 0;
+            if (*(ham_u64_t *)p != 0) {
+              m_db->get_local_env()->get_blob_manager()->erase(m_db,
+                              *(ham_u64_t *)p);
+              *(ham_u64_t *)p = 0;
+            }
           }
         }
         m_db->get_local_env()->get_blob_manager()->erase(m_db, m_table_id);
@@ -643,7 +643,7 @@ class UpfrontIndex
       ham_assert(dst - new_data_ptr + used_data_size <= full_range_size_bytes);
       // shift "to the right"? Then first move the data and afterwards
       // the index
-      if (new_data_ptr > m_data) {
+      if (dst > src) {
         memmove(dst, src, used_data_size);
         memmove(new_data_ptr, m_data,
                 kPayloadOffset + new_capacity * get_full_index_size());
@@ -1317,7 +1317,7 @@ class VariableLengthKeyList
     bool requires_split(size_t node_count, const ham_key_t *key) {
       // add 1 byte for flags
       if (key->size > m_extkey_threshold)
-        return (m_index.requires_split(node_count, m_extkey_threshold + 1));
+        return (m_index.requires_split(node_count, 8 + 1));
       return (m_index.requires_split(node_count, key->size + 1));
     }
 
@@ -1848,7 +1848,7 @@ class DuplicateInlineRecordList : public DuplicateRecordList
       // if the slot was not yet allocated: allocate new space, initialize
       // it and then overwrite the record
       if (current_size == 0) {
-        ham_assert(duplicate_index == 0);
+        duplicate_index = 0;
         flags |= HAM_OVERWRITE;
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot,
                                     1 + m_record_size);
@@ -2052,9 +2052,6 @@ class DuplicateInlineRecordList : public DuplicateRecordList
         if (m_data[offset] & BtreeRecord::kExtendedDuplicates) {
           ham_assert((m_data[offset] & 0x7f) == 0);
         }
-        else {
-          ham_assert((m_data[offset] & 0x7f) > 0);
-        }
       }
 
       m_index.check_integrity(node_count);
@@ -2079,7 +2076,6 @@ class DuplicateInlineRecordList : public DuplicateRecordList
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
       ham_u32_t offset = m_index.get_absolute_chunk_offset(slot);
-      ham_assert(!(m_data[offset] & BtreeRecord::kExtendedDuplicates));
       return (m_data[offset] & 0x7f);
     }
 
@@ -2254,7 +2250,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
       // if the slot was not yet allocated: allocate new space, initialize
       // it and then overwrite the record
       if (current_size == 0) {
-        ham_assert(duplicate_index == 0);
+        duplicate_index = 0;
         flags |= HAM_OVERWRITE;
         chunk_offset = m_index.allocate_space(m_node->get_count(), slot, 1 + 9);
         chunk_offset = m_index.get_absolute_offset(chunk_offset);
@@ -2327,6 +2323,7 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
         return;
       }
 
+      ham_u64_t overwrite_blob_id = 0;
       ham_u8_t *record_flags = 0;
       ham_u8_t *p = 0;
 
@@ -2337,10 +2334,14 @@ class DuplicateDefaultRecordList : public DuplicateRecordList
 
         // If a blob is overwritten with an inline record then the old blob
         // has to be deleted
-        if (*record_flags == 0 && record->size <= 8) {
-          ham_u64_t blob_id = *(ham_u64_t *)p;
-          if (blob_id)
-            m_db->get_local_env()->get_blob_manager()->erase(m_db, blob_id);
+        if (*record_flags == 0) {
+          if (record->size <= 8) {
+            ham_u64_t blob_id = *(ham_u64_t *)p;
+            if (blob_id)
+              m_db->get_local_env()->get_blob_manager()->erase(m_db, blob_id);
+          }
+          else
+            overwrite_blob_id = *(ham_u64_t *)p;
           // fall through
         }
         // then jump to the code which performs the actual insertion
@@ -2412,8 +2413,12 @@ write_record:
       else {
         LocalEnvironment *env = m_db->get_local_env();
         *record_flags = 0;
-        ham_u64_t blob_id = env->get_blob_manager()->allocate(m_db,
-                        record, flags);
+        ham_u64_t blob_id;
+        if (overwrite_blob_id)
+          blob_id = env->get_blob_manager()->overwrite(m_db, overwrite_blob_id,
+                          record, flags);
+        else
+          blob_id = env->get_blob_manager()->allocate(m_db, record, flags);
         memcpy(p, &blob_id, sizeof(blob_id));
       }
 
@@ -2527,7 +2532,6 @@ write_record:
     // Returns the number of records that are stored inline
     ham_u32_t get_inline_record_count(ham_u32_t slot) {
       ham_u32_t offset = m_index.get_absolute_chunk_offset(slot);
-      ham_assert(!(m_data[offset] & BtreeRecord::kExtendedDuplicates));
       return (m_data[offset] & 0x7f);
     }
 

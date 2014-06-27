@@ -75,7 +75,9 @@ DiskBlobManager::do_allocate(LocalDatabase *db, ham_record_t *record,
 
     // and move the remaining space to the freelist, unless we span multiple
     // pages (then the rest will be discarded) - TODO can we reuse it somehow?
-    if (num_pages == 1 && kPageOverhead + alloc_size > 0) {
+    if (num_pages == 1
+          && kPageOverhead + alloc_size > 0
+          && header->get_free_bytes() - alloc_size > 0) {
       header->set_freelist_offset(0, kPageOverhead + alloc_size);
       header->set_freelist_size(0, header->get_free_bytes() - alloc_size);
     }

@@ -766,20 +766,21 @@ o Refactorings for the Default layout with the following goals:
             head:  19185664
             bdb:   29532160
 
-    o run unittests, monster tests
-        o Hamsterdb/recordCountTest
-            b btree_impl_default.h:3029
-          -> 4th call of adjust_capacity (node_count == 98) destroys the
-             record list (m_records.check_integrity fails)
+    x fails: ./ham_bench --keysize=1024 --recsize=1024 --pagesize=1024 \
+            --distribution=ascending
 
-        o ./ham_bench --use-berkeleydb=true --reopen=true  --use-cursors --duplicate=first ../testfiles/1/10004.tst
-
+    x run recovery tests (currently failing)
+    x run unittests
+    x run valgrind tests - there are memory leaks
+    o run monster tests
     o run performance tests
+    o profile and micro-optimize
+        o delete performance slightly worse than in 2.1.7
+        o slightly improve read-random (10%) - bin16, no duplicates
+        o vastly improve write-random/overwrite (50%) - bin16, no duplicates
     o remove conditional check for split? (btree_insert)
     o update the documentation (internal + external)
         o also update documentation in btree_impl_pax.h
-
-    o check valgrind tests - there are memory leaks
 
 o the steps above will create an incompatible file format
     o increment file version
@@ -788,11 +789,18 @@ o the steps above will create an incompatible file format
         o EnvHeader is completely full; add at least 8 bytes for
                 flags + reserved
         o reserve CRC32 for each page
+        o make sure that we can store additional flags in the database
+            descriptor, i.e. for compression
         . PAX Layout: can compress the flags for the DefaultRecordList
         . Default Layout: can compress the flags for the Duplicate*RecordList
 
 o ham/types.h: do not include winsock2.h because it can conflict with
     winsock.h in the user's application
+
+x hamserver: check for memory leaks if there are multiple clients
+    sending multiple requests - no, it's ok
+
+o fix memory leaks in remote unittests
 
 o need new API to retrieve the duplicate position of a cursor:
     ham_status_t ham_cursor_get_duplicate_position(ham_cursor_t *cursor,
@@ -844,17 +852,26 @@ o PRO: CRC32-checksums (as soon as the file format is updated)
 o PRO: enable SIMD in the default layout if it uses the same KeyList as
     in PAX *and* if record IDs are stored separately from the keys
 
-o PRO: should we have a separate "recsize == 0" RecordList for duplicates?
-    they could only store the duplicate count (but should be able to deal
-    with duplicates that are > 256!)
-
 o PRO: think about a bitmap index for recnos; one bit per key, and (later)
     grouped varints for the records
     -> can a bitmap be used for other indices as well? theoretically yes;
         but a split can be a bit tricky at a later stage. everything else
         should be very fast and compact!
 
+o PRO: should we have a separate "recsize == 0" RecordList for duplicates?
+    they could only store the duplicate count (but should be able to deal
+    with duplicates that are > 256!)
+
 ------------- hamsterdb 2.1.9 ----------------------------------------
+
+o start using likely/unlikely
+    #if defined __GNUC__
+    #   define likely(x) __builtin_expect ((x), 1)
+    #   define unlikely(x) __builtin_expect ((x), 0)
+    #else
+    #   define likely(x) (x)
+    #   define unlikely(x) (x)
+    #endif
 
 o duplicate table: check for overflow of the capacity/duplicate counter
 
@@ -864,7 +881,7 @@ o remove support for big endian. better now than later, and this will get
     o add documentation that database is host-endian
 
 o release-v2.pl: valgrind takes sooo long. should we use clang's
-    AddressSanitizer instead?
+    AddressSanitizer instead? or both?
 
 o can we add a generic macro like this:
     #define ham_make_key(PTR, SIZE)   { SIZE, PTR, 0, 0}
@@ -971,6 +988,14 @@ o python wrapper: should be part of the sources; build for linux
         o sending out release emails
         o importing new releases
         o etc
+
+o documentation rewrite
+    o documentation/api: have one file per API, formatted in markup (see above)
+        this file is maintained in parallel to the doxygen API
+    o documentation/tutorial: same as the API documentation, but contains
+        the tutorial
+    o format into html, with an index page
+    o upload to webpage, make this the main documentation entrance
 
 . look into hive-integration
     -> would be an interesting market with requirements for column store
@@ -1095,11 +1120,20 @@ o "hola" - olap functions that operate directly on the btree data
 - concurrency -> PRO
 
 o the bucket for concurrency TODOs
-    o reduce the linked lists - they're hard to be updated with atomic
-        operations
-        o page
-        o transaction and dependent objects
-        o ...
+    o create coding rules
+        o synchronization either in lowest or highest level of the callstack
+        o when to use what kind of synchronization
+        o which modules are single-threaded/synchronized, which are atomic,
+            which are concurrent?
+
+    o how can we verify the correctness of the implementation?
+        - i.e. by using static analysis or dynamic analysis, together
+            with annotated code/custom tools? even if these tools do not
+            exist then a system of annotations/naming conventions can help
+            writing/maintaining the code
+
+    o mutex implementations should have built-in monitoring, i.e.
+        number of locks/unlocks, wait times, contention etc
 
     o come up with a list of all functions, define which locking operation
         is required; then review the code and make sure this will work
@@ -1116,10 +1150,18 @@ o the bucket for concurrency TODOs
         - purging caches asynchronously
         - async. merging of delta updates
         - have concurrent lookups/find/inserts (with delta updates)
+
+    o reduce the linked lists - they're hard to be updated with atomic
+        operations
+        o page
+        o transaction and dependent objects
+        o ...
+
     o separate SMOs from the actual operation (#2)
         -> check the literature
         http://pdf.aminer.org/000/409/763/b_trees_with_relaxed_balance.pdf
         o move SMO operations to "the janitor" (btree_janitor.h)
+
     o the global environment-lock should go because it's expensive; rather
         increment an atomic latch, and refuse to close/erase the database as
         long as the latch is > 0 

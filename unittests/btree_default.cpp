@@ -692,6 +692,9 @@ struct DuplicateTableFixture
               ? record_sizes[i]
               : 8;
     }
+
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertAscendingTest(bool fixed_records, size_t record_size) {
@@ -729,6 +732,9 @@ struct DuplicateTableFixture
       REQUIRE(record.size == record_size);
       REQUIRE(0 == memcmp(record.data, &buffer[0], record_size));
     }
+
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertDescendingTest(bool fixed_records, size_t record_size) {
@@ -769,6 +775,9 @@ struct DuplicateTableFixture
       REQUIRE(record.size == record_size);
       REQUIRE(0 == memcmp(record.data, &buffer[0], record_size));
     }
+
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertRandomTest(bool fixed_records, size_t record_size) {
@@ -815,6 +824,9 @@ struct DuplicateTableFixture
       REQUIRE(record.size == record_size);
       REQUIRE(0 == memcmp(record.data, &(model[i][0]), record_size));
     }
+
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertEraseAscendingTest(bool fixed_records, size_t record_size) {
@@ -860,6 +872,8 @@ struct DuplicateTableFixture
     }
 
     REQUIRE(dt.get_record_count() == 0);
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertEraseDescendingTest(bool fixed_records, size_t record_size) {
@@ -906,6 +920,8 @@ struct DuplicateTableFixture
     }
 
     REQUIRE(dt.get_record_count() == 0);
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertEraseRandomTest(bool fixed_records, size_t record_size) {
@@ -954,6 +970,8 @@ struct DuplicateTableFixture
     }
 
     REQUIRE(dt.get_record_count() == 0);
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertOverwriteTest(bool fixed_records, size_t record_size) {
@@ -1001,6 +1019,8 @@ struct DuplicateTableFixture
       REQUIRE(record.size == record_size);
       REQUIRE(0 == memcmp(record.data, &(model[i][0]), record_size));
     }
+    // clean up
+    dt.erase_record(0, true);
   }
 
   void insertOverwriteSizesTest() {
@@ -1047,6 +1067,8 @@ struct DuplicateTableFixture
       REQUIRE(record.size == (ham_u32_t)((i + 1) % 15));
       REQUIRE(0 == memcmp(record.data, &(model[i][0]), record.size));
     }
+    // clean up
+    dt.erase_record(0, true);
   }
 };
 
