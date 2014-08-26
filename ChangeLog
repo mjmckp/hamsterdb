@@ -1,3 +1,7 @@
+Aug 26, 2014 - chris ---------------------------------------------------
+o The file structure has been completely reorganized. It is described
+	in documentation/source/structure.txt.
+
 Aug 21, 2014 - chris ---------------------------------------------------
 o Fixed segfault when opening a file with HAM_ENABLE_RECOVERY (and
 	without HAM_ENABLE_TRANSACTIONS)
