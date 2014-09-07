@@ -469,12 +469,18 @@ ham_env_create(ham_env_t **henv, const char *filename,
   }
 
   if (st) {
+    try {
+      env->close(HAM_AUTO_CLEANUP);
+    }
+    catch (Exception &ex) {
+      // ignored
+    }
     delete env;
     return (st);
   }
  
   *henv = (ham_env_t *)env;
-  return 0;
+  return (0);
 }
 
 ham_status_t HAM_CALLCONV
@@ -703,6 +709,12 @@ ham_env_open(ham_env_t **henv, const char *filename, ham_u32_t flags,
   }
 
   if (st) {
+    try {
+      env->close(HAM_AUTO_CLEANUP);
+    }
+    catch (Exception &ex) {
+      // ignored
+    }
     delete env;
     return (st);
   }
