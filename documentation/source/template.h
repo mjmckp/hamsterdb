@@ -17,6 +17,9 @@
 /*
  * TODO
  * Add brief documentation about this file
+ *
+ * @exception_safe unknown
+ * @thread_safe unknown
  */
 
 #ifndef HAM_TEMPLATE_H // TODO
@@ -25,7 +28,7 @@
 #include "0root/root.h"
 
 // TODO include c/c++ standard libraries
-#include <ham/types.h>
+#include <string.h>
 
 // TODO include 3rd party headers
 #include "json/json.h"

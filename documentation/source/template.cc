@@ -17,7 +17,7 @@
 #include "0root/root.h"
 
 // TODO include c/c++ standard libraries
-#include <ham/types.h>
+#include <string.h>
 
 // TODO include 3rd party headers
 #include "json/json.h"

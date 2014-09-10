@@ -317,13 +317,7 @@ ham_status_t HAM_CALLCONV
 ham_env_create(ham_env_t **henv, const char *filename,
         ham_u32_t flags, ham_u32_t mode, const ham_parameter_t *param)
 {
-  ham_u32_t page_size = HAM_DEFAULT_PAGE_SIZE;
-  ham_u64_t cache_size = 0;
-  ham_u64_t file_size_limit = 0xffffffffffffffff;
-  ham_u16_t max_databases = 0;
-  ham_u32_t timeout = 0;
-  std::string logdir;
-  ham_u8_t *encryption_key = 0;
+  EnvironmentConfiguration config;
 
   if (!henv) {
     ham_trace(("parameter 'env' must not be NULL"));
@@ -370,8 +364,8 @@ ham_env_create(ham_env_t **henv, const char *filename,
         ham_trace(("Journal compression is only available in hamsterdb pro"));
         return (HAM_NOT_IMPLEMENTED);
       case HAM_PARAM_CACHE_SIZE:
-        cache_size = param->value;
-        if (flags & HAM_IN_MEMORY && cache_size != 0) {
+        config.cache_size_bytes = param->value;
+        if (flags & HAM_IN_MEMORY && config.cache_size_bytes != 0) {
           ham_trace(("combination of HAM_IN_MEMORY and cache size != 0 "
                 "not allowed"));
           return (HAM_INV_PARAMETER);
@@ -382,17 +376,17 @@ ham_env_create(ham_env_t **henv, const char *filename,
           ham_trace(("invalid page size - must be 1024 or a multiple of 2048"));
           return (HAM_INV_PAGESIZE);
         }
-        page_size = (ham_u32_t)param->value;
+        config.page_size_bytes = (ham_u32_t)param->value;
         break;
       case HAM_PARAM_FILE_SIZE_LIMIT:
         if (param->value > 0)
-          file_size_limit = param->value;
+          config.file_size_limit_bytes = param->value;
         break;
       case HAM_PARAM_LOG_DIRECTORY:
-        logdir = (const char *)param->value;
+        config.log_filename = (const char *)param->value;
         break;
       case HAM_PARAM_NETWORK_TIMEOUT_SEC:
-        timeout = (ham_u32_t)param->value;
+        config.remote_timeout_sec = (ham_u32_t)param->value;
         break;
       case HAM_PARAM_ENCRYPTION_KEY:
         ham_trace(("Encryption is only available in hamsterdb pro"));
@@ -405,18 +399,18 @@ ham_env_create(ham_env_t **henv, const char *filename,
   }
 
   /* don't allow cache limits with unlimited cache */
-  if (flags & HAM_CACHE_UNLIMITED && cache_size != 0) {
+  if (flags & HAM_CACHE_UNLIMITED && config.cache_size_bytes != 0) {
     ham_trace(("combination of HAM_CACHE_UNLIMITED and cache size != 0 "
           "not allowed"));
     return (HAM_INV_PARAMETER);
   }
 
-  if (cache_size == 0)
-    cache_size = HAM_DEFAULT_CACHE_SIZE;
-  if (page_size == 0)
-    page_size = HAM_DEFAULT_PAGE_SIZE;
+  if (config.cache_size_bytes == 0)
+    config.cache_size_bytes = HAM_DEFAULT_CACHE_SIZE;
+  if (config.page_size_bytes == 0)
+    config.page_size_bytes = HAM_DEFAULT_PAGE_SIZE;
 
-  if (!filename && !(flags & HAM_IN_MEMORY)) {
+  if (config.filename.empty() && !(flags & HAM_IN_MEMORY)) {
     ham_trace(("filename is missing"));
     return (HAM_INV_PARAMETER);
   }
@@ -426,27 +420,28 @@ ham_env_create(ham_env_t **henv, const char *filename,
    * page!
    * leave at least 128 bytes for other header data
    */
-  max_databases = page_size - sizeof(PEnvironmentHeader) - 128;
-  max_databases /= sizeof(PBtreeHeader);
+  config.max_databases = config.page_size_bytes
+            - sizeof(PEnvironmentHeader) - 128;
+  config.max_databases /= sizeof(PBtreeHeader);
 
   ham_status_t st = 0;
   Environment *env = 0;
   try {
-    if (__filename_is_local(filename)) {
+    if (__filename_is_local(config.filename.c_str())) {
       LocalEnvironment *lenv = new LocalEnvironment();
       env = lenv;
-      if (logdir.size())
-        lenv->set_log_directory(logdir);
-      if (encryption_key)
-        lenv->enable_encryption(encryption_key);
+      if (!config.log_filename.empty())
+        lenv->set_log_directory(config.log_filename.c_str());
+      if (config.is_encryption_enabled)
+        lenv->enable_encryption(config.encryption_key);
     }
     else {
 #ifndef HAM_ENABLE_REMOTE
       return (HAM_NOT_IMPLEMENTED);
 #else // HAM_ENABLE_REMOTE
       RemoteEnvironment *renv = new RemoteEnvironment();
-      if (timeout)
-        renv->set_timeout(timeout);
+      if (config.remote_timeout_sec)
+        renv->set_timeout(config.remote_timeout_sec);
       env = renv;
 #endif
     }
@@ -456,8 +451,9 @@ ham_env_create(ham_env_t **henv, const char *filename,
 #endif
 
     /* and finish the initialization of the Environment */
-    st = env->create(filename, flags, mode, page_size,
-                    cache_size, max_databases, file_size_limit);
+    st = env->create(config.filename.c_str(), config.flags, config.file_mode,
+            config.page_size_bytes, config.cache_size_bytes,
+            config.max_databases, config.file_size_limit_bytes);
 
     /* flush the environment to make sure that the header page is written
      * to disk */

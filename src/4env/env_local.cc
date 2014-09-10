@@ -69,9 +69,9 @@ LocalEnvironment::create(const char *filename, ham_u32_t flags,
   set_flags(flags);
 
   if (filename)
-    m_filename = filename;
-  m_file_mode = mode;
-  m_page_size = page_size;
+    m_config.filename = filename;
+  m_config.file_mode = mode;
+  m_config.page_size_bytes = page_size;
 
   /* initialize the device if it does not yet exist */
   m_blob_manager.reset(BlobManagerFactory::create(this, flags));
@@ -135,7 +135,7 @@ LocalEnvironment::open(const char *filename, ham_u32_t flags,
   m_device.reset(DeviceFactory::create(flags, 0, file_size_limit));
 
   if (filename)
-    m_filename = filename;
+    m_config.filename = filename;
   set_flags(flags);
 
   /* open the file */

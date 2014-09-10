@@ -164,30 +164,22 @@ o refactoring: it would be nicer if the ham_paramter_t lists are passed to
     the Environment implementation and do not have to be parsed in hamsterdb.cc
     o 2config/env_config.h: a struct with the run-time configuration of
         the environment
-        o created in hamsterdb.cc/ham_env_create/ham_env_open and passed
-            to all objects that are created
-        o a State struct (no methods!) for
-            - the ham_parameter_t list
-            - the parameters from ham_env_open and ham_env_create
-            (without any dependencies!)
-            - log directory
-            - remote address
-            - remote timeout
-            - encryption settings
-            - page size
-        o gets initialized with data from the header page
-            o and with the parameters and the parameter list
+        x create the new struct
+        x initialize in ham_env_create (RCU!)
+        o initialize in ham_env_open (RCU!)
+        o pass to the instantiated Environments
+        o pass to the instantiated Device
+        o pass to the instantiated Cache
+        o pass to the instantiated Databases
+        o pass to the instantiated other objects
+
         o can only be retrieved as const ref for the whole structure
     o 2config/db_config.h: a struct with the run-time configuration of
         the database
         o proceed as described above
             - db name
             - db flags
-    o These classes initialize themselves with the parameters supplied by
-        the user, and call all other modules (device, cache...) with this
-        structure as the parameter for initialization
-        - these classes do no longer have to use the env to access runtime
-            flags or parameters
+            - parameters
 
 o refactoring: get rid of the virtual inheritance for hola workers
 

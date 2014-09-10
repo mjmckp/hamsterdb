@@ -21,6 +21,7 @@
 #include <string.h>
 
 // Always verify that a file of level N does not include headers > N!
+#include "1os/socket.h"
 #include "2protobuf/protocol.h"
 #include "4db/db_remote.h"
 #include "4env/env_remote.h"
