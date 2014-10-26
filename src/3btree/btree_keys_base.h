@@ -38,7 +38,19 @@ struct BaseKeyList
 {
   enum {
       // This KeyList cannot reduce its capacity in order to release storage
-      kCanReduceCapacity = 0
+      kCanReduceCapacity = 0,
+
+      // This KeyList uses binary search combined with linear search
+      kBinaryLinear,
+
+      // This KeyList has a custom search implementation
+      kCustomImplementation,
+
+      // This KeyList uses binary search (this is the default)
+      kBinarySearch,
+
+      // Specifies the search implementation: 
+      kSearchImplementation = kBinarySearch,
   };
 
   BaseKeyList()
@@ -58,10 +70,23 @@ struct BaseKeyList
   void vacuumize(size_t node_count, bool force) const {
   }
 
+  // Finds a key
+  template<typename Cmp>
+  int find(ham_key_t *key, Cmp &comparator, int *pcmp) {
+    ham_assert(!"shouldn't be here");
+    return (0);
+  }
+
+  // Returns the threshold when switching from binary search to
+  // linear search. Disabled by default
+  size_t get_linear_search_threshold() const {
+    return ((size_t)-1);
+  }
+
   // Performs a linear search in a given range between |start| and
-  // |start + length|
-  template<typename T, typename Cmp>
-  int linear_search(T *data, size_t start, size_t length, T key,
+  // |start + length|. Disabled by default.
+  template<typename Cmp>
+  int linear_search(size_t start, size_t length, ham_key_t *hkey,
                   Cmp &comparator, int *pcmp) {
     int c = (int)start;
     int end = (int)start + length;
