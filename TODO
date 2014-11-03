@@ -454,8 +454,9 @@ x refactoring: switch to stdint-supplied types instead of own definitions
     x see here for msvc: http://msinttypes.googlecode.com/svn/trunk/stdint.h
 
 o windows cleanups
-    o install VS2008 on the new harddisk
-    o install VS2010 on the new harddisk
+    x install VS2010 on the new harddisk
+    o build with VS2013
+    o remove solution for VS2008
     o build release lib/dll with /PDBSTRIPPED (reduces file size?),
         or figure out why the file size is so big
     o a few projects are not built (hamzilla_debug_x64, server_dll_x64...)
@@ -560,14 +561,6 @@ o ZINT32: rebase hamsterdb-pro
         this improves cache locality when performing a linear search, and it
         reduces some complexity
 
-    ./ham_bench --key=uint32 --key-compression=zint32_varbyte --recsize=3 --use-berkeleydb=true --seed=1414134350
-    hamsterdb filesize                       16809984
-    berkleydb filesize                       29462528
-
-    ./ham_bench --key=uint32 --key-compression=zint32_varbyte --recsize=3 --use-berkeleydb=true --seed=1414134350 --distribution=ascending
-    hamsterdb filesize                       10452992
-    berkleydb filesize                       20377600
-
     x improve lookups
         x delegate lookup function to the KeyList
         x pro: get rid of get_simd_data(), it's no longer required (?)
@@ -576,55 +569,76 @@ o ZINT32: rebase hamsterdb-pro
             x for exact matches
             x for lower-bound matches
 
-    o refactoring: "insert" should not be based on slot number
-        o it should *return* the slot (for the RecordList), but no longer use
+    x refactoring: "insert" should not be based on slot number
+        x it should *return* the slot (for the RecordList), but no longer use
             the slot as a parameter -> this is faster for zint32
-        o should search "inverse", then appending keys will be very fast
-        o same for erase
-        o same for find (already the case, i think)
+        x implement without the slot (see find())
+        x need fast code path for appending keys (-> slot == node_count)
+        x same for find (already the case, i think)
             -> return the key during the lookup, not with get_key(slot)
-        o wherelse is get_key() called?
+            -> not required; the key is only returned for approx. matching,
+                which is not so relevant.
 
-    o refactoring: when checking if a leaf page must be split, then first
-        check the RecordList. If it does not require a split then
-        call KeyList::insert(), and let it throw an exception if the space
-        is not sufficient (before it modifies any data).
-        o add "bool simulate" as parameter to insert() for KeyList
-                and RecordList
-        o also do this for internal nodes: "simulate" an insert of a
-            default key. The insert will abort before actually writing data.
-        o this will also work for RecordLists!
+    x currently too much space is wasted b/c it's so difficult to find
+        out whether a split is required
+        x requires_split: just return true; but check again in insert() and
+            throw an exception if necessary
+        x but also vacuumize before throwing, then check again
+        x make sure that rearrange() is called to resize the lists
+    x how can we further compress the index? currently it's too big
+    x scan() decompresses a whole block, then calls visitor
+    x review/refactor everything once more
 
-    o refactoring: do not automatically vacuumize prior to a merge or after
-        a split; rather perform it in copy_to(), and only when necessary
-        o rename copy_to() to move_to()
-        -> really? what's the advantage?
+    ./ham_bench --key=uint32 --key-compression=zint32_varbyte --recsize=8 --use-berkeleydb=true --seed=1414134350 --distribution=random
+    hamsterdb filesize                       16809984 !!!
+    hamsterdb filesize (w/o compression)     16809984 !!!
+    berkleydb filesize                       29462528
 
-    o make sure that appending keys is an extra-fast code path
-    o scan() decompresses a whole block, then calls visitor
+    ./ham_bench --key=uint32 --key-compression=zint32_varbyte --recsize=8 --use-berkeleydb=true --seed=1414134350 --distribution=ascending
+    hamsterdb filesize                       10158080
+    hamsterdb filesize (w/o compression)     13090816
+    berkleydb filesize                       20377600
+
+o Zint32: copy relevant changes to base/apl
+
+o Zint32: line 336 says: dest.grow_block(dsti, srci->block_size);
+    but srci->block_size are *additional bytes*, not the total size
+    (as it should be).
+
+o Zint32: TODO bucket for the release
+    o refactoring: can btree erase be similar to insert and return the slot
+        instead of requiring a lookup first? This would increase performance
+        for zint32
+    o improve cursor performance by caching the last slot
+    o fix remaining TODOs in the code
+    o have more thorough tests for erase and approx. matching
+        o unittests
+        o monster tests
     o need to support larger block offsets for pages > 16kb
-    o copy relevant changes to base/apl
-
-    o run benchmark with different block sizes, growth factors etc
+    o add to webpage
 
 o PRO: the switch from binary search to linear search is not good enough,
     because in 99% there are less keys than required (linear search threshold
     not reached), and simd search is not performed
+    -> call simd function if block is <= threshold (not just < threshold)
+    -> or if block is <= threshold * 0.5? threshold * 2?
+    -> or just let it search threshold items, even if the remaining range
+        is smaller?
+    -> or rewrite the binary search function and make sure that the pivot
+        elements are always aligned to the threshold?
 
-o PRO: look for a better compression for DefaultRecordList, i.e.
-    msb is 1 -> 7 bit record ID (should be sufficient)
+. PRO: look for a better compression for DefaultRecordList, i.e.
+    msb is 1 -> 7 bit record ID (should be sufficient, esp. if record ID
+        is always even/aligned to 2!)
     msb is 0 -> 5 bit flags for size (2 bits unused), inline data (max 16 bytes)
     o requires index structure for addressing every N'th record
     o could be very similar to zint32 index
 
-o PRO: find an efficient compression method for InternalRecordList
+. PRO: find an efficient compression method for InternalRecordList
     x The page IDs should be modulo page-size (makes numbers smaller) - done
-
-    o Use bitpacking in variable-length groups, but always for 32 (16? 64?)
-        record IDs; the bits for each ID are variable
-        -> can cause ripple effect...
-    o Use small index which stores offset + bit width for each group
-    o Use this index for binary search by slot number
+    o Use bitpacking with fixed length bits per ID; start with 16 bits
+    o if more size is required then re-compress the page with the new
+        bit limit; split if necessary
 
 ------------- hamsterdb 2.1.10 ---------------------------------------
 
