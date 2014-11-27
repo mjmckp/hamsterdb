@@ -1,4 +1,5 @@
 Nov 27, 2014 - chris ---------------------------------------------------
+o Removed dependency to malloc.h
 o issue #42: ham_cursor_find returned wrong key w/ approx. matching and
 	transactions
 
