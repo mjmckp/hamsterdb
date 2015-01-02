@@ -1,3 +1,7 @@
+Jan 02, 2015 - chris ---------------------------------------------------
+o issue #44: approx. matching returned the wrong key (thanks, Joel
+	Jacobson)
+
 Dec 30, 2014 - chris ---------------------------------------------------
 o issue #43: fixed segfault when flushing transactions (thanks, Joel
 	Jacobson)
