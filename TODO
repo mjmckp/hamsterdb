@@ -212,6 +212,20 @@ x Mail from Joel: approx. matching returns wrong key
             find_txn then moves to the next node, which is null
             segfault when accessing *node
 
+x PRO: add Group Varint-based integer encoding
+    x add parameter to header file
+    x support in ham_bench
+    x update IndexFactory for the new KeyList
+    x integrate Daniel's sources as a library
+    x implement the compression
+        x add unittests (similar to zint32)
+    x add monster tests (similar to zint32/varbyte)
+    x don't split blocks in the middle if the new key is appended
+    x don't split blocks in the middle if the new key is prepended
+    x tests fail if kMaxGroupVarintsPerBlock is set to 4
+        x also try larger values
+    x reduce index size by setting the correct bit widths
+
 o Crash when opening env and Journal is applied
     starting w/ key 1104669304804000000, the blob 729496 (and all following
     60 blobs on page 720896) are missing (= their blob headers are empty).
@@ -232,32 +246,12 @@ o Crash when opening env and Journal is applied
             broken prior to recovery
         2) might be a crash during recovery which resulted in an invalid state
 
-o PRO: add Group Varint-based integer encoding
-    x add parameter to header file
-    x support in ham_bench
-    x update IndexFactory for the new KeyList
-    x integrate Daniel's sources as a library
-    x implement the compression
-        x add unittests (similar to zint32)
-    x add monster tests (similar to zint32/varbyte)
-    x don't split blocks in the middle if the new key is appended
-    x don't split blocks in the middle if the new key is prepended
-    o tests fail if kMaxGroupVarintsPerBlock is set to 4
-        o also try larger values
-    o run ham_bench with different values for kMaxGroupVarintsPerBlock
-        (see mail to Daniel)
-    o reduce index size by setting the correct bit widths
-    o vacuumize (internal == false): merge two blocks if they're underfilled?
-        we have to reduce the number of indices
-        o also for varbyte?
-
 o PRO: retrieve better statistics regarding compression/overhead/payload
-    -> extend ham_info
     o for each page retrieve those statistics and print them 
-
-o PRO: zint32 - can we find an encoding which gets rid of the block index?
-    -> verify by dumping statistics
-    o come up with suggestions
+    o extend ham_info
+        o by default, no new stats are printed
+        o a new option for brief, consolidated statistics
+        o a new option for long, extensive statistics
 
 o Concurrency: move "purge cache" to background
     -> Reorg the hash table. All buckets are in serial memory. This requires
@@ -274,19 +268,25 @@ o Concurrency: move "purge cache" to background
       means there can be multiple threads performing I/O without
       blocking each other.
 
-    o Get rid of the page lists. Have a generic "PageCollection" class
-        with atomic updates. Use this in the Changeset and the Cache buckets.
-        o use a DynamicArray<std::pair<uint64_t, Page *>> for memory
-        o whenever the array grows:
+    o on a new branch! topic/thread
+
+    o Create a generic "PageCollection" class with atomic updates
+        x use static memory as default, but replace w/ dynamic memory if
+            capacity is not enough
+        x need a very fast spinlock for writing
+        x whenever the array grows:
             1) grow into a copy
-            2) perform "compactions" if too many elements were deleted
-            3) perform CAS with the old pointer
-        o assert that there is only 1 writer at a time (i.e. use a mutex)
-        o when inserting: set the pointer, then atomically increment the counter
-        o when deleting: simply set to zero
-        o never use a lock when reading
+            2) perform CAS with the old pointer
+            3) old pointer can be discarded after 1 second
+        x assert that there is only 1 writer at a time (i.e. use a mutex)
+        x when inserting: set the pointer, then atomically increment the counter
+        x when deleting: simply set to zero
+        x never use a lock when reading
         o use hazard pointers; auto-delete them after 1 second
-            (pass them to the thread for management)
+            (by which thread? there's no pointer to env etc.
+            pass thread as parameter?)
+
+    o Use PageCollection in the Changeset
 
     o Create a background thread (use boost::thread)
     o Join thread when closing the Environment
@@ -298,9 +298,11 @@ o Concurrency: move "purge cache" to background
         o remember that there can be multiple consumer threads
 
     o get rid of the Page-List (use a generic visitor for the Cache)
-    o purger thread periodically walks over the list, purges
+    o if a page is deleted or db is closed: let thread clean up the pages
+    o Use PageCollection for the Cache buckets; use atomic lsn tag for
+        the LRU algorithm
+        o thread periodically scans the cache to evict unused pages (really?)
         o can be woken up by the main thread
-    o if a page is deleted or closed: let purger thread clean up the pages
     o page must not be purged while it's "in use"
     o mark page as "in use" during purge
     o run performance tests
@@ -309,7 +311,9 @@ o Concurrency: move "purge cache" to background
     o use valgrind to check for race conditions etc 
 
     o if a database is deleted: move job to background thread
+        o make sure that it cannot be created while it is getting deleted
     o if a database is closed: move job to background thread
+        o make sure that it cannot be opened while it is "in closing state"
 
 o refactoring: make EnvironmentHeader stateless and exception safe
     o transform to struct instead of class
@@ -440,6 +444,12 @@ o PRO: additional zint32 TODOs for simdcomp
     o improve copy_to() performance by allocating multiple blocks at once
     o rewrite remainding simdcomp functions to accept a "length" parameter
     o add more unittests for delete stability
+
+o PRO: Group Varint-related improvements
+    o will currently not work with pages > 16kb
+    o vacuumize (internal == false): merge two blocks if they're underfilled?
+        we have to reduce the number of indices
+        o also for varbyte?
 
 o PRO: allow compression of 32bit record numbers
 
