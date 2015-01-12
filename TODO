@@ -268,7 +268,7 @@ o Concurrency: move "purge cache" to background
       means there can be multiple threads performing I/O without
       blocking each other.
 
-    o on a new branch! topic/thread
+    x on a new branch! topic/thread
 
     o Create a generic "PageCollection" class with atomic updates
         x use static memory as default, but replace w/ dynamic memory if
